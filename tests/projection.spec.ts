@@ -385,6 +385,23 @@ describe('tokenUsageRecorder projection', () => {
     })
   })
 
+  it('counts a pre-usage retry when the last sample belongs to another step', () => {
+    let state = definition.init()
+    const events = [
+      { seq: 0, time: 1, type: 'request/context', data: { provider: 'deepseek', model: 'deepseek-chat' } },
+      { seq: 1, time: 2, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 2, outputTokens: 1 } } } },
+      { seq: 2, time: 3, type: 'llm/retry', data: { retryId: 'retry-2', turn: 1, step: 2, retry: 1, failure: { code: 'SERVER', message: 'private' } } },
+      { seq: 3, time: 4, type: 'assistant/chunk', data: { turn: 1, step: 2, chunk: { type: 'usage', usage: { inputTokens: 3, outputTokens: 1 } } } },
+    ]
+    for (const item of events) state = definition.apply(state, event(item))
+
+    expect(definition.view(state)).toMatchObject({
+      assistantRequests: 3,
+      usage: { uncachedInputTokens: 5, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      models: [{ provider: 'deepseek', model: 'deepseek-chat', assistantRequests: 3 }],
+    })
+  })
+
   it('counts a compaction attempt even when provider usage is unavailable', () => {
     const state = definition.apply(definition.init(), event({
       seq: 0,

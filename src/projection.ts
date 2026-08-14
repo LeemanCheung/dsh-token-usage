@@ -206,13 +206,12 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
     }
     if (event.type === 'llm/retry') {
       const current = state.lastAssistant
-      if (current === null) {
-        const models = { ...state.models }
-        if (state.route !== null) adjustModel(models, state.route, zeroBuckets(), 1, 'assistant')
-        return { ...state, assistantRequests: state.assistantRequests + 1, models }
+      if (current !== null && current.turn === event.data.turn && current.step === event.data.step) {
+        return { ...state, lastAssistant: null }
       }
-      if (current.turn !== event.data.turn || current.step !== event.data.step) return state
-      return { ...state, lastAssistant: null }
+      const models = { ...state.models }
+      if (state.route !== null) adjustModel(models, state.route, zeroBuckets(), 1, 'assistant')
+      return { ...state, assistantRequests: state.assistantRequests + 1, models }
     }
     if (event.type === 'compaction/summary') {
       const compactionRequests = state.compactionRequests + 1

@@ -280,11 +280,39 @@ describe('TokenUsageSection', () => {
     expect(screen.getByText('7 日日均 Token').parentElement?.querySelector('strong')?.textContent).toBe('—')
   })
 
-  it('suppresses operational signals when daily coverage is only partial', () => {
-    render(<TokenUsageSection {...props([first, legacy])} />)
+  it('suppresses operational and anomaly signals when daily coverage is only partial', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 15, 12))
+    const signal = summary({
+      id: 'session-signal' as SessionSummary['id'],
+      displayTitle: '信号会话',
+      updatedAt: Date.UTC(2026, 7, 14),
+      projectionValues: {
+        tokenUsageRecorder: {
+          assistantRequests: 1,
+          compactionRequests: 0,
+          compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          usage: { uncachedInputTokens: 1_500, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          models: [{
+            provider: 'deepseek', model: 'deepseek-chat', assistantRequests: 1, compactionRequests: 0,
+            usage: { uncachedInputTokens: 1_500, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+          days: [8, 9, 10, 11, 12].map(day => ({
+            date: `2026-08-${day}`,
+            usage: { uncachedInputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          })).concat([{
+            date: '2026-08-14',
+            usage: { uncachedInputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }]),
+        },
+      },
+    })
+    render(<TokenUsageSection {...props([signal, legacy])} />)
 
     expect(screen.getAllByText('部分历史记录缺少真实逐日 bucket；为避免低估，运行率、预测和异常信号暂不显示。')).toHaveLength(2)
     expect(screen.getByText('7 日日均 Token').parentElement?.querySelector('strong')?.textContent).toBe('—')
+    expect(screen.getByText('昨日相对基线').parentElement?.querySelector('strong')?.textContent).toBe('—')
+    expect(screen.getByText('昨日超出中位数').parentElement?.querySelector('strong')?.textContent).toBe('—')
+    expect(screen.queryByRole('button', { name: '查看异常日会话' })).toBeNull()
   })
 
   it('retains count-only sessions and route attempts', () => {

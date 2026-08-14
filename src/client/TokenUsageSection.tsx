@@ -709,7 +709,10 @@ function OperationsPanel({
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const runRate = useMemo(() => runRateInsight(days), [days])
-  const anomaly = useMemo(() => dailyAnomalyInsight(days), [days])
+  const anomaly = useMemo(
+    () => dailyCoverage === 'complete' ? dailyAnomalyInsight(days) : undefined,
+    [days, dailyCoverage],
+  )
   const dailyCoverageAvailable = dailyCoverage === 'complete'
   return (
     <div className={css.insights}>

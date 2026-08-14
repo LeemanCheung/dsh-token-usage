@@ -157,7 +157,7 @@ dsh plugin --profile web add ./dsh-token-usage
 - 分析由用户显式触发，报告不写入会话日志、projection cache 或导出文件；刷新页面后不会保留。
 - 发送给模型的事件只允许：内置事件类别与序号、相对时间、turn/step、报告内 `route-N` 别名、重试序号/上限/等待、通用成功或错误状态以及 Token bucket；未知扩展事件会省略。
 - 提示词、回复、system prompt、会话标题、原始 provider/model、工具名称/参数/结果/meta、故障代码与错误消息、路径、URL、邮箱、姓名、会话 ID、个人字段和组织字段不会进入模型证据；这是 allowlist 省略，不依赖正则脱敏。
-- 模型输入最多约 96,000 字符；超限时保留首尾元数据并插入截断标记。模型最多生成 3,000 Token。
+- 完整模型证据最多 96,000 字符；完整节点表留在本地，模型只接收最大节点、最多 16 个高消耗重试节点和有界首尾时间线，超限时插入截断标记。模型最多生成 3,000 Token。
 - 辅助调用的 provider/model 和 Token 用量显示在报告卡片中，但不会计入持久化用量 projection。
 - 私有 RPC 只允许本机 loopback Web 页面调用；必须先从已接入模型目录中手动选择 provider/model，不会隐藏地回退到默认模型。
 

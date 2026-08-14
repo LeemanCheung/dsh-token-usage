@@ -217,6 +217,45 @@ describe('trajectory analysis', () => {
     expect(prepared.timeline).not.toContain('private-')
   })
 
+  it('bounds the complete model evidence when the deterministic span table is large', async () => {
+    const events = [event(0, 0, 'request/context', { provider: 'private-provider', model: 'private-model' })]
+    for (let index = 1; index <= 1_200; index += 1) {
+      events.push(event(index, index, 'assistant/chunk', {
+        turn: index,
+        step: 1,
+        chunk: { type: 'usage', usage: { inputTokens: index, outputTokens: 1 } },
+      }))
+    }
+    const stream = vi.fn(async function* () {
+      yield { type: 'text-delta' as const, index: 0, text: '# Resource summary' }
+      yield { type: 'finish' as const, reason: { kind: 'stop' as const } }
+    })
+    const prepareCall = vi.fn(async (config: { provider: string; model: string; maxTokens: number }) => ({
+      config,
+      retryPolicy: {},
+      adapterDefaults: {},
+      stream,
+    }))
+
+    const result = await analyzeTrajectory(
+      { llm: { prepareCall } } as unknown as Context,
+      SessionId('private-session-id'),
+      events,
+      { provider: 'configured', model: 'audit-model' },
+      'en',
+      new AbortController().signal,
+    )
+    const request = stream.mock.calls[0]?.[0] as { messages: Array<{ content: Array<{ text: string }> }> }
+    const evidence = request.messages[0]!.content[0]!.text
+
+    expect(evidence.length).toBeLessThanOrEqual(96_000)
+    expect(evidence).not.toContain('"spans"')
+    expect(evidence).toContain('trajectory/evidence-truncated')
+    expect(evidence).not.toContain('private-provider')
+    expect(result.truncated).toBe(true)
+    expect(result.metrics.spans).toHaveLength(1_200)
+  })
+
   it('produces identical model evidence when only private payload content changes', () => {
     const first = prepareTrajectory([
       event(0, 0, 'user/message', { content: 'person-a@example.com', source: { name: 'team-a' } }),
@@ -277,10 +316,14 @@ describe('trajectory analysis', () => {
       messages: expect.any(Array),
     }))
     const modelEvidence = JSON.stringify(request)
+    const modelEvidenceText = (request as { messages: Array<{ content: Array<{ text: string }> }> }).messages[0]!.content[0]!.text
+    expect(modelEvidenceText.length).toBeLessThanOrEqual(96_000)
+    expect(modelEvidenceText).not.toContain('"spans"')
+    expect(modelEvidenceText).toContain('"largestSpan"')
     expect(modelEvidence).not.toContain('private-session-id')
     expect(modelEvidence).not.toContain('private-')
     expect(result).toMatchObject({
-      schema: 'dsh-token-usage/trajectory-analysis-v2',
+      schema: 'dsh-token-usage/trajectory-analysis-v1',
       sessionId: 'private-session-id',
       model: { provider: 'configured', model: 'audit-model' },
       analysisUsage: { uncachedInputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },

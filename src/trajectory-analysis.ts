@@ -19,6 +19,7 @@ import type {
 } from './types.ts'
 
 const MAX_TRAJECTORY_CHARS = 96_000
+const MAX_RETRY_SPANS_IN_MODEL_EVIDENCE = 16
 const ANALYSIS_MAX_TOKENS = 3_000
 
 type Route = Pick<TrajectoryUsageSpan, 'provider' | 'model'>
@@ -506,6 +507,70 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
   return { metrics, timeline, truncated }
 }
 
+/** Retain only the span details needed for bounded largest-node and retry analysis. */
+function modelMetrics(metrics: TrajectoryMetrics): Omit<TrajectoryMetrics, 'spans'> & {
+  spanCount: number
+  largestSpan?: TrajectoryUsageSpan
+  largestRetrySpans: TrajectoryUsageSpan[]
+} {
+  const { spans, ...summary } = metrics
+  const largestSpan = metrics.largestSpanId === undefined
+    ? undefined
+    : spans.find(span => span.id === metrics.largestSpanId)
+  const largestRetrySpans = spans
+    .filter(span => span.status === 'retried')
+    .slice()
+    .sort((left, right) => totalTokens(right.usage) - totalTokens(left.usage) || left.id.localeCompare(right.id))
+    .slice(0, MAX_RETRY_SPANS_IN_MODEL_EVIDENCE)
+  return {
+    ...summary,
+    spanCount: spans.length,
+    ...largestSpan === undefined ? {} : { largestSpan },
+    largestRetrySpans,
+  }
+}
+
+/** Apply a second row-aware cap after fixed metrics consume part of the complete evidence budget. */
+function boundedTimeline(timeline: string, maximumChars: number): { text: string; truncated: boolean } {
+  if (timeline.length <= maximumChars) return { text: timeline, truncated: false }
+  if (maximumChars <= 0) return { text: '', truncated: true }
+  const rows = timeline.split('\n')
+  const marker = '{"type":"trajectory/evidence-truncated"}'
+  if (maximumChars <= marker.length) return { text: marker.slice(0, maximumChars), truncated: true }
+  const head: string[] = []
+  const tail: string[] = []
+  const contentBudget = maximumChars - marker.length - 2
+  const headBudget = Math.floor(contentBudget * 0.65)
+  let headChars = 0
+  let tailChars = 0
+  for (const row of rows) {
+    const addition = row.length + (head.length === 0 ? 0 : 1)
+    if (headChars + addition > headBudget) break
+    head.push(row)
+    headChars += addition
+  }
+  for (let index = rows.length - 1; index >= head.length; index -= 1) {
+    const row = rows[index]
+    if (row === undefined) continue
+    const addition = row.length + (tail.length === 0 ? 0 : 1)
+    if (headChars + tailChars + addition > contentBudget) break
+    tail.unshift(row)
+    tailChars += addition
+  }
+  const parts = [head.join('\n'), marker, tail.join('\n')].filter(part => part.length > 0)
+  return { text: parts.join('\n'), truncated: true }
+}
+
+/** Build the complete metadata-only user text within the declared model-input character budget. */
+function modelEvidence(prepared: PreparedTrajectory): { text: string; truncated: boolean } {
+  const metrics = JSON.stringify(modelMetrics(prepared.metrics), null, 2)
+  const prefix = `Deterministic metadata-only metrics:\n${metrics}\n\nBounded metadata-only timeline (JSON Lines):\n`
+  const timeline = boundedTimeline(prepared.timeline, Math.max(0, MAX_TRAJECTORY_CHARS - prefix.length))
+  const text = `${prefix}${timeline.text}`
+  if (text.length > MAX_TRAJECTORY_CHARS) throw new Error('Trajectory model evidence exceeded its internal character limit.')
+  return { text, truncated: prepared.truncated || timeline.truncated }
+}
+
 /** Translate an unsuccessful terminal model finish into one user-visible analysis error. */
 function finishError(finish: FinishReason): Error | undefined {
   switch (finish.kind) {
@@ -549,10 +614,11 @@ export async function analyzeTrajectory(
 ): Promise<TrajectoryAnalysis> {
   signal.throwIfAborted()
   const prepared = prepareTrajectory(events)
+  const evidence = modelEvidence(prepared)
   const messages = [createUserMessage({
     content: [{
       type: 'text',
-      text: `Deterministic metadata-only metrics:\n${JSON.stringify(prepared.metrics, null, 2)}\n\nBounded metadata-only timeline (JSON Lines):\n${prepared.timeline}`,
+      text: evidence.text,
     }],
     source: { kind: 'plugin', plugin: 'dsh-token-usage' },
   })]
@@ -585,11 +651,11 @@ export async function analyzeTrajectory(
   if (report.length === 0) throw new Error('Trajectory analysis model returned no report text.')
   const auxiliaryUsage = analysisUsage(assembler.usage)
   return {
-    schema: 'dsh-token-usage/trajectory-analysis-v2',
+    schema: 'dsh-token-usage/trajectory-analysis-v1',
     sessionId: String(sessionId),
     generatedAt: new Date().toISOString(),
     model: { provider: preparedCall.config.provider, model: preparedCall.config.model },
-    truncated: prepared.truncated,
+    truncated: evidence.truncated,
     metrics: prepared.metrics,
     ...auxiliaryUsage === undefined ? {} : { analysisUsage: auxiliaryUsage },
     report,
