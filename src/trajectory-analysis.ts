@@ -97,14 +97,15 @@ const SAFE_EVENT_TYPES = new Set([
   'compaction/start', 'compaction/summary', 'compaction/end', 'compaction/prune',
   'approval/asked', 'approval/decided', 'subagent/descriptor', 'session/end-seed',
 ])
+const SAFE_OUTCOMES = new Set([
+  'completed', 'cancelled', 'rejected', 'interrupted', 'error', 'aborted', 'max-tokens',
+  'allowed-once', 'allowed-always', 'unavailable',
+])
 
 /** Collapse an extensible outcome string into non-identifying lifecycle categories. */
 function safeOutcome(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
-  return new Set([
-    'completed', 'cancelled', 'rejected', 'interrupted', 'error', 'aborted', 'max-tokens',
-    'allowed-once', 'allowed-always', 'unavailable',
-  ]).has(value) ? value : 'other'
+  return SAFE_OUTCOMES.has(value) ? value : 'other'
 }
 
 /** Keep only explicitly allowlisted event metadata for the auxiliary model. */

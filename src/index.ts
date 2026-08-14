@@ -271,12 +271,14 @@ function installRpc(ctx: Context): void {
           const models = await analysisModels({ llm, logger: ctx.logger })
           if (!isKnownModel(models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           const live = ctx.sessions.get(request.sessionId)
-          const persistence = live === undefined ? ctx.get('sessionPersistence') : undefined
-          if (live === undefined && persistence === undefined) {
-            return rpcError('Trajectory analysis cannot read cold sessions because persistence is unavailable.')
+          let events = live?.events
+          if (events === undefined) {
+            const persistence = ctx.get('sessionPersistence')
+            if (persistence === undefined) {
+              return rpcError('Trajectory analysis cannot read cold sessions because persistence is unavailable.')
+            }
+            events = (await persistence.inspect(request.sessionId, operationSignal)).events
           }
-          const events = live?.events
-            ?? (await persistence!.inspect(request.sessionId, operationSignal)).events
           if (events.length === 0) return rpcError('This session has no trajectory events to analyze.')
           return {
             ok: true,
