@@ -1,0 +1,328 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: 100%;
+  max-width: 960px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.header h2,
+.header p,
+.block h3,
+.status {
+  margin: 0;
+}
+
+.header h2 {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+}
+
+.header p {
+  max-width: 720px;
+  margin-top: 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric {
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  padding: 13px 14px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.metric span {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric strong {
+  overflow: hidden;
+  font-size: 20px;
+  line-height: 26px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+
+.activity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.activityHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.activityHead h3,
+.activityHead p {
+  margin: 0;
+}
+
+.activityHead h3 {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.activityHead p {
+  margin-top: 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.activityGrid {
+  display: grid;
+  min-width: 0;
+  grid-auto-flow: column;
+  grid-auto-columns: 10px;
+  grid-template-rows: repeat(7, 10px);
+  gap: 3px;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.activityGrid i,
+.activityLegend i {
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.activityGrid i[data-level='1'],
+.activityLegend i[data-level='1'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 22%, var(--dsw-alias-bg-module-platform));
+}
+
+.activityGrid i[data-level='2'],
+.activityLegend i[data-level='2'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 42%, var(--dsw-alias-bg-module-platform));
+}
+
+.activityGrid i[data-level='3'],
+.activityLegend i[data-level='3'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 64%, var(--dsw-alias-bg-module-platform));
+}
+
+.activityGrid i[data-level='4'],
+.activityLegend i[data-level='4'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.activityLegend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.block {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.block h3 {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.blockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.blockHead input {
+  box-sizing: border-box;
+  width: min(280px, 45%);
+  height: 34px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 0 11px;
+  outline: none;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.blockHead input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.blockHead input:focus-visible {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent);
+}
+
+.tableWrap {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.tableWrap table {
+  width: 100%;
+  min-width: 0;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.tableWrap .modelTable {
+  min-width: 580px;
+  table-layout: fixed;
+}
+
+.tableWrap .sessionTable {
+  min-width: 660px;
+}
+
+.modelTable th:first-child,
+.modelTable td:first-child {
+  width: 30%;
+}
+
+.modelTable th:nth-child(2),
+.modelTable td:nth-child(2) {
+  width: 18%;
+}
+
+.tableWrap th,
+.tableWrap td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  text-align: right;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.tableWrap th {
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tableWrap th:first-child,
+.tableWrap td:first-child {
+  max-width: 270px;
+  text-align: left;
+}
+
+.tableWrap tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.tableWrap tbody tr:hover td {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tableWrap td {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tableWrap td strong,
+.tableWrap td span {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tableWrap td strong {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tableWrap td span {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.tableWrap td .tokenValue {
+  display: inline;
+  max-width: none;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.tableWrap td .cacheDetail {
+  margin-top: 2px;
+}
+
+.status {
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+@media (max-width: 860px) {
+  .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 580px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .activityHead,
+  .blockHead {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .blockHead input {
+    width: 100%;
+  }
+}

@@ -1,0 +1,4 @@
+# Persistent Host projection plus its Web settings dashboard.
+- insert:
+    - id: token-usage
+      name: 'dsh-token-usage'

@@ -1,0 +1,83 @@
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+
+/** Dictionary namespace owned by the Token usage dashboard. */
+export const NS = 'settings.tokenUsage'
+
+/** Simplified Chinese dictionary and key source of truth. */
+export const zh = {
+  nav: 'Token 用量',
+  title: 'Token 使用记录',
+  intro: '基于 DSH 持久会话日志统计模型请求与上下文压缩用量，不保存提示词或回复正文。',
+  totalTokens: '总 Token',
+  inputTokens: '输入 Token',
+  outputTokens: '输出 Token',
+  cacheHit: '缓存命中率',
+  sessions: '有用量会话',
+  modelBreakdown: '模型用量',
+  activity: 'Token 活跃度',
+  activityIntro: '最近 52 周，颜色越深表示当日 Token 使用量越高。',
+  activityTooltip: '{date} · {tokens} Token',
+  less: '少',
+  more: '多',
+  recentSessions: '会话记录',
+  providerModel: '提供方 / 模型',
+  calls: '调用',
+  total: '总量',
+  input: '输入',
+  output: '输出',
+  cacheRead: '缓存读取',
+  cacheWrite: '缓存写入',
+  cacheDetail: '缓存：读 {read} · 写 {write}',
+  session: '会话',
+  updated: '最近活动',
+  routes: '模型',
+  search: '搜索会话或模型',
+  empty: '暂无 Token 使用记录。',
+  emptySearch: '没有匹配的使用记录。',
+  assistantCalls: '对话 {count}',
+  compactionCalls: '压缩 {count}',
+  unknownRoute: '模型信息不可用',
+  unattributed: '未归因用量',
+  loading: '正在读取会话统计…',
+} satisfies Record<string, string>
+
+/** Token usage locale key union. */
+export type TokenUsageLocaleKey = keyof typeof zh
+
+/** English dictionary checked against the Chinese key set. */
+export const en = {
+  nav: 'Token usage',
+  title: 'Token usage records',
+  intro: 'Counts model requests and context compactions from durable DSH session logs without storing prompt or response text.',
+  totalTokens: 'Total tokens',
+  inputTokens: 'Input tokens',
+  outputTokens: 'Output tokens',
+  cacheHit: 'Cache hit rate',
+  sessions: 'Sessions with usage',
+  modelBreakdown: 'Usage by model',
+  activity: 'Token activity',
+  activityIntro: 'Last 52 weeks. Darker cells represent higher daily Token usage.',
+  activityTooltip: '{date} · {tokens} tokens',
+  less: 'Less',
+  more: 'More',
+  recentSessions: 'Session records',
+  providerModel: 'Provider / model',
+  calls: 'Calls',
+  total: 'Total',
+  input: 'Input',
+  output: 'Output',
+  cacheRead: 'Cache read',
+  cacheWrite: 'Cache write',
+  cacheDetail: 'Cache: read {read} · write {write}',
+  session: 'Session',
+  updated: 'Last activity',
+  routes: 'Models',
+  search: 'Search sessions or models',
+  empty: 'No token usage has been recorded.',
+  emptySearch: 'No matching usage records.',
+  assistantCalls: 'Chat {count}',
+  compactionCalls: 'Compaction {count}',
+  unknownRoute: 'Model unavailable',
+  unattributed: 'Unattributed usage',
+  loading: 'Reading session usage…',
+} satisfies Record<TokenUsageLocaleKey, string>
