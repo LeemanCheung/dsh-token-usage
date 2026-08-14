@@ -31,6 +31,41 @@ export interface TokenUsageRecorderProjection {
   days: readonly DailyTokenUsageRecord[]
 }
 
+/** Deterministic measurements extracted before model-driven trajectory review. */
+export interface TrajectoryMetrics {
+  eventCount: number
+  includedEventCount: number
+  omittedChunkEvents: number
+  turnCount: number
+  completedTurns: number
+  failedTurns: number
+  stepCount: number
+  assistantRequests: number
+  toolCalls: number
+  toolErrors: number
+  retries: number
+  compactions: number
+  approvalsAsked: number
+  approvalsRejected: number
+  subagents: number
+  durationMs: number
+  eventsPerMinute: number
+  tokensPerMinute: number
+  usage: TokenUsageBuckets
+}
+
+/** One ephemeral configured-model review of a bounded DSH session trajectory. */
+export interface TrajectoryAnalysis {
+  schema: 'dsh-token-usage/trajectory-analysis-v1'
+  sessionId: string
+  generatedAt: string
+  model: { provider: string; model: string }
+  truncated: boolean
+  metrics: TrajectoryMetrics
+  analysisUsage?: TokenUsageBuckets
+  report: string
+}
+
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Provider usage, including ordinary assistant requests and compaction summaries. */

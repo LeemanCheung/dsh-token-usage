@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '../src/types.ts'
@@ -119,7 +119,39 @@ function translate(key: keyof typeof zh, params?: Record<string, unknown>): stri
   return value
 }
 
-function props(summaries: readonly SessionSummary[] = [first, legacy]): TokenUsageSectionProps {
+function props(
+  summaries: readonly SessionSummary[] = [first, legacy],
+  analyzeTrajectory: TokenUsageSectionProps['analyzeTrajectory'] = async sessionId => ({
+    schema: 'dsh-token-usage/trajectory-analysis-v1',
+    sessionId,
+    generatedAt: '2026-08-14T12:00:00.000Z',
+    model: { provider: 'deepseek', model: 'deepseek-chat' },
+    truncated: false,
+    metrics: {
+      eventCount: 20,
+      includedEventCount: 15,
+      omittedChunkEvents: 5,
+      turnCount: 2,
+      completedTurns: 2,
+      failedTurns: 0,
+      stepCount: 3,
+      assistantRequests: 3,
+      toolCalls: 4,
+      toolErrors: 1,
+      retries: 1,
+      compactions: 0,
+      approvalsAsked: 1,
+      approvalsRejected: 0,
+      subagents: 1,
+      durationMs: 60_000,
+      eventsPerMinute: 20,
+      tokensPerMinute: 190,
+      usage: { uncachedInputTokens: 100, outputTokens: 30, cacheReadTokens: 50, cacheWriteTokens: 10 },
+    },
+    analysisUsage: { uncachedInputTokens: 40, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    report: '# 执行摘要\n\n调用链与合规性正常。',
+  }),
+): TokenUsageSectionProps {
   const state = {
     ids: summaries.map(summary => summary.id),
     byId: Object.fromEntries(summaries.map(summary => [summary.id, summary])),
@@ -134,13 +166,17 @@ function props(summaries: readonly SessionSummary[] = [first, legacy]): TokenUsa
     close: () => {},
     useSessions,
     useWorkspaces: (() => { throw new Error('unused') }) as TokenUsageSectionProps['useWorkspaces'],
+    useBudget: selector => selector({ status: 'ready', budget: 0 }),
+    setBudget: async () => {},
+    download: { save: () => {} },
+    analyzeTrajectory,
     t: translate,
   } as TokenUsageSectionProps
 }
 
 afterEach(() => {
   cleanup()
-  vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 describe('TokenUsageSection', () => {
@@ -219,8 +255,7 @@ describe('TokenUsageSection', () => {
   })
 
   it('renders daily Token activity as a heatmap cell', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-08-14T12:00:00.000Z'))
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
     render(<TokenUsageSection {...props([activity])} />)
 
     expect(screen.getByRole('grid', { name: 'Token 活跃度' })).toBeTruthy()
@@ -228,6 +263,41 @@ describe('TokenUsageSection', () => {
     expect(screen.getAllByRole('gridcell')).toHaveLength(210)
     expect(cell?.getAttribute('title')).toBe('2026-08-12\n总计 1,000 Token\n输入 1,000 · 输出 0\n缓存：读 0 · 写 0')
     expect(cell?.getAttribute('data-level')).toBe('4')
+    fireEvent.click(cell!)
+    expect(screen.getByRole('heading', { name: '2026-08-12 用量明细' })).toBeTruthy()
+    expect(screen.getAllByText('热力图会话').length).toBeGreaterThan(1)
+  })
+
+  it('switches trend periods, persists a budget, and exports aggregate-only data', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
+    const setBudget = vi.fn(async () => {})
+    const save = vi.fn()
+    render(<TokenUsageSection {...props([activity])} setBudget={setBudget} download={{ save }} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '7 天' }))
+    expect(screen.getByRole('button', { name: '7 天' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.change(screen.getByLabelText('30 日预算（Token）'), { target: { value: '2000' } })
+    fireEvent.blur(screen.getByLabelText('30 日预算（Token）'))
+    expect(setBudget).toHaveBeenCalledWith(2000)
+
+    fireEvent.click(screen.getByRole('button', { name: 'JSON 汇总' }))
+    const exported = save.mock.calls[0]?.[2] as string
+    expect(exported).toContain('dsh-token-usage/export-v1')
+    expect(exported).not.toContain('热力图会话')
+    expect(exported).not.toContain('session-activity')
+  })
+
+  it('runs configured-model trajectory analysis for a selected session', async () => {
+    const analyze = vi.fn(props([first]).analyzeTrajectory)
+    render(<TokenUsageSection {...props([first], analyze)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))
+
+    expect(screen.getByText('正在分析“主要会话”的完整会话轨迹…')).toBeTruthy()
+    await waitFor(() => { expect(screen.getByText(/调用链与合规性正常/)).toBeTruthy() })
+    expect(analyze).toHaveBeenCalledWith('session-first', expect.any(AbortSignal))
+    expect(screen.getByText(/deepseek\/deepseek-chat ·/)).toBeTruthy()
+    expect(screen.getByText('本次分析 60 Token')).toBeTruthy()
   })
 
   it('renders totals, model attribution, and filters session records', () => {

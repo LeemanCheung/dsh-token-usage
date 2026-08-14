@@ -1,18 +1,33 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import type { SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { ObservableSnapshot, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type {
   DailyTokenUsageRecord,
   ModelTokenUsageRecord,
   TokenUsageBuckets,
   TokenUsageRecorderProjection,
+  TrajectoryAnalysis,
 } from '../types.ts'
+import type { TokenUsageBudgetSnapshot } from './budget-controller.ts'
+import { dailyContributors, periodInsight } from './analytics.ts'
+import { dailyUsageCsv, modelUsageCsv, tokenUsageJson, type DownloadPort } from './export.ts'
 import { NS } from './locales.ts'
 import css from './TokenUsageSection.module.css'
 
+interface TokenUsageSectionInjected {
+  hooks: {
+    budget: ObservableSnapshot<TokenUsageBudgetSnapshot>
+  }
+  setBudget(value: number): Promise<void>
+  download: DownloadPort
+  analyzeTrajectory(sessionId: string, signal: AbortSignal): Promise<TrajectoryAnalysis>
+}
+
 /** Full props assembled by the root-scoped Settings section renderer. */
-export type TokenUsageSectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS>
+export type TokenUsageSectionProps = PropsRuntime<'settings.section'>
+  & PropsLocale<typeof NS>
+  & InjectFace<TokenUsageSectionInjected>
 
 interface SessionUsageRow {
   id: string
@@ -29,6 +44,14 @@ interface DashboardData {
   models: ModelTokenUsageRecord[]
   days: DailyTokenUsageRecord[]
 }
+
+type InsightRange = 7 | 30 | 90
+
+type TrajectoryAnalysisState =
+  | { status: 'idle' }
+  | { status: 'loading'; sessionId: string; title: string }
+  | { status: 'ready'; title: string; value: TrajectoryAnalysis }
+  | { status: 'error'; sessionId: string; title: string; message: string }
 
 /** Detached zero buckets for dashboard folds. */
 function zeroBuckets(): TokenUsageBuckets {
@@ -227,7 +250,17 @@ function activityCalendar(days: readonly DailyTokenUsageRecord[], now = Date.now
 }
 
 /** Render a GitHub-style calendar heatmap of daily Token activity. */
-function ActivityHeatmap({ days, t }: { days: readonly DailyTokenUsageRecord[]; t: TokenUsageSectionProps['t'] }): ReactNode {
+function ActivityHeatmap({
+  days,
+  selectedDate,
+  onSelectDate,
+  t,
+}: {
+  days: readonly DailyTokenUsageRecord[]
+  selectedDate: string | undefined
+  onSelectDate(date: string): void
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
   const calendar = useMemo(() => activityCalendar(days), [days])
   return (
     <div className={css.activity}>
@@ -253,12 +286,18 @@ function ActivityHeatmap({ days, t }: { days: readonly DailyTokenUsageRecord[]; 
             cacheWrite: formatTokens(day.usage.cacheWriteTokens),
           })
           return (
-            <i
+            <button
               key={day.date}
+              className={css.activityCell}
+              type="button"
               role="gridcell"
               data-level={day.level}
               data-future={day.future ? 'true' : undefined}
+              data-selected={selectedDate === day.date ? 'true' : undefined}
+              disabled={day.future}
+              aria-selected={selectedDate === day.date}
               {...details === undefined ? {} : { title: details, 'aria-label': details }}
+              onClick={() => { onSelectDate(day.date) }}
             />
           )
         })}
@@ -267,12 +306,276 @@ function ActivityHeatmap({ days, t }: { days: readonly DailyTokenUsageRecord[]; 
   )
 }
 
+/** Render a selected day's exact totals and contributing sessions. */
+function DayDrilldown({
+  day,
+  sessions,
+  t,
+  onClose,
+}: {
+  day: DailyTokenUsageRecord
+  sessions: readonly SessionUsageRow[]
+  t: TokenUsageSectionProps['t']
+  onClose(): void
+}): ReactNode {
+  const contributors = useMemo(() => dailyContributors(sessions, day.date), [day.date, sessions])
+  return (
+    <div className={css.dayDrilldown}>
+      <div className={css.blockHead}>
+        <div>
+          <h3>{t('dayDetails', { date: day.date })}</h3>
+          <p>{t('dayDetailsIntro')}</p>
+        </div>
+        <button className={css.quietButton} type="button" onClick={onClose}>{t('closeDayDetails')}</button>
+      </div>
+      <div className={css.detailMetrics}>
+        <Metric label={t('total')} value={totalTokens(day.usage)} />
+        <Metric label={t('input')} value={inputTokens(day.usage)} />
+        <Metric label={t('output')} value={day.usage.outputTokens} />
+        <Metric label={t('cacheHit')} value={inputTokens(day.usage) === 0 ? '—' : `${Math.round(day.usage.cacheReadTokens / inputTokens(day.usage) * 100)}%`} />
+      </div>
+      <div className={css.contributors}>
+        <strong>{t('contributors', { count: contributors.length })}</strong>
+        {contributors.length === 0 ? <p>{t('noContributors')}</p> : (
+          <ol>
+            {contributors.slice(0, 5).map(contributor => (
+              <li key={contributor.id} title={contributor.id}>
+                <span>{contributor.title}</span>
+                <TokenValue value={totalTokens(contributor.usage)} />
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Render period-aware trend and activity summaries from daily records. */
+function PeriodInsights({
+  days,
+  range,
+  onRangeChange,
+  t,
+}: {
+  days: readonly DailyTokenUsageRecord[]
+  range: InsightRange
+  onRangeChange(range: InsightRange): void
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  const insight = useMemo(() => periodInsight(days, range), [days, range])
+  const current = totalTokens(insight.usage)
+  const previous = totalTokens(insight.previousUsage)
+  const delta = previous === 0 ? undefined : Math.round((current - previous) / previous * 100)
+  const peak = insight.peak
+  return (
+    <div className={css.insights}>
+      <div className={css.blockHead}>
+        <div>
+          <h3>{t('trend')}</h3>
+          <p>{t('trendIntro')}</p>
+        </div>
+        <div className={css.rangeTabs} aria-label={t('trend')}>
+          {([7, 30, 90] as const).map(value => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={range === value}
+              onClick={() => { onRangeChange(value) }}
+            >{t('rangeDays', { count: value })}</button>
+          ))}
+        </div>
+      </div>
+      <div className={css.detailMetrics}>
+        <Metric label={t('periodTokens', { count: range })} value={current} />
+        <Metric label={t('periodChange')} value={delta === undefined ? '—' : `${delta > 0 ? '+' : ''}${delta}%`} />
+        <Metric label={t('activeDays')} value={`${insight.activeDays}/${range}`} />
+        <Metric label={t('peakDay')} value={peak === undefined ? '—' : formatCompactTokens(totalTokens(peak.usage))} />
+      </div>
+      {peak === undefined ? null : <p className={css.insightNote}>{t('peakDayNote', { date: peak.date, total: formatTokens(totalTokens(peak.usage)) })}</p>}
+    </div>
+  )
+}
+
+/** Render the persistent trailing-30-day budget setting and progress. */
+function BudgetPanel({
+  days,
+  snapshot,
+  setBudget,
+  t,
+}: {
+  days: readonly DailyTokenUsageRecord[]
+  snapshot: TokenUsageBudgetSnapshot
+  setBudget(value: number): Promise<void>
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  const insight = useMemo(() => periodInsight(days, 30), [days])
+  const used = totalTokens(insight.usage)
+  const budget = snapshot.budget
+  const enabled = budget > 0
+  const ratio = enabled ? used / budget : 0
+  const save = (value: string): void => {
+    const next = value.trim() === '' ? 0 : Number(value)
+    if (!Number.isSafeInteger(next) || next < 0) return
+    void setBudget(next)
+  }
+  return (
+    <div className={css.budget}>
+      <div className={css.blockHead}>
+        <div>
+          <h3>{t('budget')}</h3>
+          <p>{t('budgetIntro')}</p>
+        </div>
+        <label className={css.budgetInput}>
+          <span>{t('budgetInput')}</span>
+          <input
+            key={`${snapshot.status}:${budget}`}
+            type="number"
+            inputMode="numeric"
+            min="0"
+            step="1"
+            defaultValue={enabled ? String(budget) : ''}
+            placeholder="0"
+            aria-label={t('budgetInput')}
+            disabled={snapshot.status !== 'ready'}
+            onBlur={(event) => { save(event.currentTarget.value) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+          />
+        </label>
+      </div>
+      {snapshot.status !== 'ready' ? <p className={css.insightNote}>{t('budgetUnavailable')}</p>
+        : !enabled ? <p className={css.insightNote}>{t('budgetDisabled')}</p>
+          : <>
+            <div className={css.budgetProgress}>
+              <progress value={Math.min(used, budget)} max={budget} />
+              <strong>{t('budgetProgress', { used: formatCompactTokens(used), budget: formatCompactTokens(budget), percent: Math.round(ratio * 100) })}</strong>
+            </div>
+            {ratio > 1 ? <p className={css.budgetWarning}>{t('budgetExceeded', { excess: formatCompactTokens(used - budget) })}</p> : null}
+          </>}
+    </div>
+  )
+}
+
+/** Render export controls that only receive aggregate, privacy-safe dashboard data. */
+function ExportControls({
+  data,
+  download,
+  t,
+}: {
+  data: DashboardData
+  download: DownloadPort
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  const save = (kind: 'json' | 'daily' | 'models'): void => {
+    const generatedAt = new Date().toISOString()
+    const date = generatedAt.slice(0, 10)
+    switch (kind) {
+      case 'json':
+        download.save(`dsh-token-usage-${date}.json`, 'application/json;charset=utf-8', tokenUsageJson(data, generatedAt))
+        return
+      case 'daily':
+        download.save(`dsh-token-usage-daily-${date}.csv`, 'text/csv;charset=utf-8', dailyUsageCsv(data))
+        return
+      case 'models':
+        download.save(`dsh-token-usage-models-${date}.csv`, 'text/csv;charset=utf-8', modelUsageCsv(data))
+    }
+  }
+  return (
+    <div className={css.exportControls} aria-label={t('export')}>
+      <span>{t('export')}</span>
+      <button type="button" onClick={() => { save('json') }}>{t('exportJson')}</button>
+      <button type="button" onClick={() => { save('daily') }}>{t('exportDaily')}</button>
+      <button type="button" onClick={() => { save('models') }}>{t('exportModels')}</button>
+    </div>
+  )
+}
+
+/** Render one ephemeral model-generated review and its deterministic measurements. */
+function TrajectoryAnalysisPanel({ state, t }: {
+  state: TrajectoryAnalysisState
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  if (state.status === 'idle') {
+    return <div className={css.analysisEmpty}><h3>{t('trajectoryAnalysis')}</h3><p>{t('trajectoryAnalysisIntro')}</p></div>
+  }
+  if (state.status === 'loading') {
+    return <div className={css.analysisEmpty}><h3>{t('trajectoryAnalysis')}</h3><p>{t('analysisRunning', { title: state.title })}</p></div>
+  }
+  if (state.status === 'error') {
+    return <div className={css.analysisError}><h3>{t('trajectoryAnalysis')}</h3><p>{t('analysisFailed', { message: state.message })}</p></div>
+  }
+  const analysis = state.value
+  const metrics = analysis.metrics
+  const analysisTokens = analysis.analysisUsage === undefined ? undefined : totalTokens(analysis.analysisUsage)
+  return (
+    <div className={css.analysisPanel}>
+      <div className={css.blockHead}>
+        <div>
+          <h3>{t('analysisFor', { title: state.title })}</h3>
+          <p>{t('analysisMeta', {
+            provider: analysis.model.provider,
+            model: analysis.model.model,
+            time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(analysis.generatedAt)),
+          })}</p>
+        </div>
+        {analysisTokens === undefined ? null : <span className={css.analysisCost}>{t('analysisCost', { total: formatTokens(analysisTokens) })}</span>}
+      </div>
+      <div className={css.analysisMetrics}>
+        <Metric label={t('analysisTurns')} value={metrics.turnCount} />
+        <Metric label={t('analysisTools')} value={`${metrics.toolCalls} / ${metrics.toolErrors}`} />
+        <Metric label={t('analysisRetries')} value={metrics.retries} />
+        <Metric label={t('analysisRate')} value={metrics.tokensPerMinute === 0 ? '—' : `${formatCompactTokens(metrics.tokensPerMinute)}/min`} />
+        <Metric label={t('analysisApprovals')} value={`${metrics.approvalsAsked} / ${metrics.approvalsRejected}`} />
+      </div>
+      {analysis.truncated ? <p className={css.analysisWarning}>{t('analysisTruncated')}</p> : null}
+      <pre className={css.analysisReport}>{analysis.report}</pre>
+      <p className={css.analysisPrivacy}>{t('analysisPrivacy')}</p>
+    </div>
+  )
+}
+
 /** Render durable Token usage across all listed sessions. */
-export function TokenUsageSection({ useSessions, t }: TokenUsageSectionProps): ReactNode {
+export function TokenUsageSection({
+  useSessions,
+  useBudget,
+  setBudget,
+  download,
+  analyzeTrajectory,
+  t,
+}: TokenUsageSectionProps): ReactNode {
   const phase = useSessions(state => state.phase)
   const ids = useSessions(state => state.ids)
   const byId = useSessions(state => state.byId)
+  const budget = useBudget(snapshot => snapshot)
   const [query, setQuery] = useState('')
+  const [range, setRange] = useState<InsightRange>(30)
+  const [selectedDate, setSelectedDate] = useState<string>()
+  const [analysis, setAnalysis] = useState<TrajectoryAnalysisState>({ status: 'idle' })
+  const analysisController = useRef<AbortController>()
+  useEffect(() => () => { analysisController.current?.abort() }, [])
+
+  const runAnalysis = (row: SessionUsageRow): void => {
+    analysisController.current?.abort()
+    const controller = new AbortController()
+    analysisController.current = controller
+    setAnalysis({ status: 'loading', sessionId: row.id, title: row.title })
+    void analyzeTrajectory(row.id, controller.signal).then((value) => {
+      if (analysisController.current === controller && !controller.signal.aborted) {
+        setAnalysis({ status: 'ready', title: row.title, value })
+      }
+    }, (error: unknown) => {
+      if (analysisController.current === controller && !controller.signal.aborted) {
+        setAnalysis({
+          status: 'error',
+          sessionId: row.id,
+          title: row.title,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    })
+  }
 
   const data = useMemo(
     () => aggregateUsage(ids.map(id => byId[id]).filter((value): value is SessionSummary => value !== undefined)),
@@ -285,6 +588,10 @@ export function TokenUsageSection({ useSessions, t }: TokenUsageSectionProps): R
       || row.id.toLocaleLowerCase().includes(normalizedQuery)
       || row.models.some(model => routeLabel(model).toLocaleLowerCase().includes(normalizedQuery))
   }), [data.sessions, normalizedQuery])
+  const selectedDay = useMemo(
+    () => selectedDate === undefined ? undefined : data.days.find(day => day.date === selectedDate),
+    [data.days, selectedDate],
+  )
   const billedInput = inputTokens(data.usage)
   const cacheHit = billedInput === 0 ? '—' : `${Math.round(data.usage.cacheReadTokens / billedInput * 100)}%`
 
@@ -299,6 +606,7 @@ export function TokenUsageSection({ useSessions, t }: TokenUsageSectionProps): R
           <h2>{t('title')}</h2>
           <p>{t('intro')}</p>
         </div>
+        <ExportControls data={data} download={download} t={t} />
       </header>
 
       {data.sessions.length === 0 ? <p className={css.status}>{t('empty')}</p> : (
@@ -311,7 +619,10 @@ export function TokenUsageSection({ useSessions, t }: TokenUsageSectionProps): R
             <Metric label={t('sessions')} value={data.sessions.length} />
           </div>
 
-          <ActivityHeatmap days={data.days} t={t} />
+          <PeriodInsights days={data.days} range={range} onRangeChange={setRange} t={t} />
+          <BudgetPanel days={data.days} snapshot={budget} setBudget={setBudget} t={t} />
+          <ActivityHeatmap days={data.days} selectedDate={selectedDate} onSelectDate={setSelectedDate} t={t} />
+          {selectedDay === undefined ? null : <DayDrilldown day={selectedDay} sessions={data.sessions} t={t} onClose={() => { setSelectedDate(undefined) }} />}
 
           <div className={css.block}>
             <h3>{t('modelBreakdown')}</h3>
@@ -363,6 +674,8 @@ export function TokenUsageSection({ useSessions, t }: TokenUsageSectionProps): R
             )}
           </div>
 
+          <TrajectoryAnalysisPanel state={analysis} t={t} />
+
           <div className={css.block}>
             <div className={css.blockHead}>
               <h3>{t('recentSessions')}</h3>
@@ -385,6 +698,7 @@ export function TokenUsageSection({ useSessions, t }: TokenUsageSectionProps): R
                       <th>{t('total')}</th>
                       <th>{t('input')}</th>
                       <th>{t('output')}</th>
+                      <th>{t('analysis')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -402,6 +716,14 @@ export function TokenUsageSection({ useSessions, t }: TokenUsageSectionProps): R
                         <td><TokenValue value={totalTokens(row.usage)} /></td>
                         <td><TokenValue value={inputTokens(row.usage)} /></td>
                         <td><TokenValue value={row.usage.outputTokens} /></td>
+                        <td>
+                          <button
+                            className={css.analysisButton}
+                            type="button"
+                            disabled={analysis.status === 'loading' && analysis.sessionId === row.id}
+                            onClick={() => { runAnalysis(row) }}
+                          >{analysis.status === 'loading' && analysis.sessionId === row.id ? t('analyzing') : t('analyze')}</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

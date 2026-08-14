@@ -14,7 +14,9 @@
   },
   "include": [
     "src/index.ts",
+    "src/budget-settings.ts",
     "src/projection.ts",
+    "src/trajectory-analysis.ts",
     "src/types.ts"
   ]
 }
