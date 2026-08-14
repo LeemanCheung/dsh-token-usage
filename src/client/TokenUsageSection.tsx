@@ -58,6 +58,7 @@ interface SessionUsageRow {
   usage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
+  dailyUsageReliable: boolean
 }
 
 interface DashboardData {
@@ -68,6 +69,7 @@ interface DashboardData {
   sessions: SessionUsageRow[]
   models: ModelTokenUsageRecord[]
   days: DailyTokenUsageRecord[]
+  operationalDays: DailyTokenUsageRecord[]
 }
 
 type InsightRange = 7 | 30 | 90
@@ -254,6 +256,7 @@ function sessionRow(summary: SessionSummary): SessionUsageRow | null {
     usage,
     models: recorded?.models ?? [unattributedModel(usage)],
     days: recorded?.days ?? [{ date: dayKey(summary.updatedAt), usage }],
+    dailyUsageReliable: recorded?.days !== undefined,
   }
 }
 
@@ -262,6 +265,7 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
   const sessions: SessionUsageRow[] = []
   const models = new Map<string, ModelTokenUsageRecord>()
   const days = new Map<string, TokenUsageBuckets>()
+  const operationalDays = new Map<string, TokenUsageBuckets>()
   let usage = zeroBuckets()
   let assistantRequests = 0
   let compactionRequests = 0
@@ -277,6 +281,9 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
     compactionUsage = addBuckets(compactionUsage, row.compactionUsage)
     for (const day of row.days) {
       days.set(day.date, addBuckets(days.get(day.date) ?? zeroBuckets(), day.usage))
+      if (row.dailyUsageReliable) {
+        operationalDays.set(day.date, addBuckets(operationalDays.get(day.date) ?? zeroBuckets(), day.usage))
+      }
     }
     for (const model of row.models) {
       const key = modelKey(model)
@@ -307,13 +314,18 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
     days: [...days.entries()]
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
+    operationalDays: [...operationalDays.entries()]
+      .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
+      .sort((left, right) => left.date.localeCompare(right.date)),
   }
 }
 
 /** Return only detached aggregate buckets, route records, and UTC dates for AI usage analysis. */
-export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'compactionUsage' | 'models' | 'days'>): TokenUsageAnalysisInput {
+export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'assistantRequests' | 'compactionRequests' | 'compactionUsage' | 'models' | 'operationalDays'>): TokenUsageAnalysisInput {
   return {
     usage: { ...data.usage },
+    assistantRequests: data.assistantRequests,
+    compactionRequests: data.compactionRequests,
     compactionUsage: { ...data.compactionUsage },
     models: data.models.map(model => ({
       provider: model.provider,
@@ -322,7 +334,7 @@ export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'compacti
       compactionRequests: model.compactionRequests,
       usage: { ...model.usage },
     })),
-    days: data.days.map(day => ({ date: day.date, usage: { ...day.usage } })),
+    days: data.operationalDays.map(day => ({ date: day.date, usage: { ...day.usage } })),
   }
 }
 
@@ -526,17 +538,20 @@ function PeriodInsights({
 /** Render the persistent trailing-30-day budget setting and progress. */
 function BudgetPanel({
   days,
+  operationalDays,
   snapshot,
   setBudget,
   t,
 }: {
   days: readonly DailyTokenUsageRecord[]
+  operationalDays: readonly DailyTokenUsageRecord[]
   snapshot: TokenUsageBudgetSnapshot
   setBudget(value: number): Promise<number>
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const insight = useMemo(() => periodInsight(days, 30), [days])
-  const runRate = useMemo(() => runRateInsight(days), [days])
+  const runRate = useMemo(() => runRateInsight(operationalDays), [operationalDays])
+  const runRateAvailable = operationalDays.length > 0
   const used = totalTokens(insight.usage)
   const budget = snapshot.budget
   const enabled = budget > 0
@@ -581,10 +596,10 @@ function BudgetPanel({
           />
         </label>
       </div>
-      <p className={css.insightNote}>{t('budgetRunRate', {
+      <p className={css.insightNote}>{runRateAvailable ? t('budgetRunRate', {
         average: formatCompactTokens(Math.round(runRate.averageDailyTokens)),
         projected: formatCompactTokens(runRate.projectedThirtyDayTokens),
-      })}</p>
+      }) : t('dailyCoverageUnavailable')}</p>
       {snapshot.status !== 'ready' ? <p className={css.insightNote}>{t('budgetUnavailable')}</p>
         : !enabled ? <p className={css.insightNote}>{t('budgetDisabled')}</p>
           : <>
@@ -593,7 +608,7 @@ function BudgetPanel({
               <strong>{t('budgetProgress', { used: formatCompactTokens(used), budget: formatCompactTokens(budget), percent: Math.round(ratio * 100) })}</strong>
             </div>
             {ratio > 1 ? <p className={css.budgetWarning}>{t('budgetExceeded', { excess: formatCompactTokens(used - budget) })}</p> : null}
-            {ratio <= 1 && runRate.projectedThirtyDayTokens > budget ? <p className={css.budgetWarning}>{t('budgetForecastExceeded', {
+            {runRateAvailable && ratio <= 1 && runRate.projectedThirtyDayTokens > budget ? <p className={css.budgetWarning}>{t('budgetForecastExceeded', {
               projected: formatCompactTokens(runRate.projectedThirtyDayTokens),
               budget: formatCompactTokens(budget),
             })}</p> : null}
@@ -607,16 +622,20 @@ function EfficiencyPanel({
   usage,
   compactionUsage,
   models,
+  assistantAttempts,
+  compactionAttempts,
   t,
 }: {
   usage: TokenUsageBuckets
   compactionUsage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
+  assistantAttempts: number
+  compactionAttempts: number
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const insight = useMemo(
-    () => usageEfficiencyInsight(usage, compactionUsage, models),
-    [usage, compactionUsage, models],
+    () => usageEfficiencyInsight(usage, compactionUsage, models, assistantAttempts, compactionAttempts),
+    [usage, compactionUsage, models, assistantAttempts, compactionAttempts],
   )
   const top = insight.topRoutes[0]
   const topThreeShare = insight.topRoutes.reduce((sum, route) => sum + route.share, 0)
@@ -659,6 +678,7 @@ function OperationsPanel({
 }): ReactNode {
   const runRate = useMemo(() => runRateInsight(days), [days])
   const anomaly = useMemo(() => dailyAnomalyInsight(days), [days])
+  const dailyCoverageAvailable = days.length > 0
   return (
     <div className={css.insights}>
       <div className={css.blockHead}>
@@ -668,13 +688,14 @@ function OperationsPanel({
         </div>
       </div>
       <div className={css.detailMetrics}>
-        <Metric label={t('dailyRunRate')} value={Math.round(runRate.averageDailyTokens)} />
-        <Metric label={t('projectedThirtyDayUsage')} value={runRate.projectedThirtyDayTokens} />
+        <Metric label={t('dailyRunRate')} value={dailyCoverageAvailable ? Math.round(runRate.averageDailyTokens) : '—'} />
+        <Metric label={t('projectedThirtyDayUsage')} value={dailyCoverageAvailable ? runRate.projectedThirtyDayTokens : '—'} />
         <Metric label={t('anomalyRatio')} value={anomaly === undefined ? '—' : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(anomaly.ratio)}×`} />
         <Metric label={t('anomalyExcess')} value={anomaly === undefined ? '—' : anomaly.excessTokens} />
       </div>
-      {anomaly === undefined ? <p className={css.insightNote}>{t('anomalyInsufficient')}</p>
-        : anomaly.status === 'normal' ? <p className={css.insightNote}>{t('anomalyNormal', {
+      {!dailyCoverageAvailable ? <p className={css.insightNote}>{t('dailyCoverageUnavailable')}</p>
+        : anomaly === undefined ? <p className={css.insightNote}>{t('anomalyInsufficient')}</p>
+          : anomaly.status === 'normal' ? <p className={css.insightNote}>{t('anomalyNormal', {
           date: anomaly.date,
           baseline: formatCompactTokens(anomaly.baselineMedianTokens),
           active: anomaly.activeBaselineDays,
@@ -911,6 +932,7 @@ export function TokenUsageSection({
   const [sessionLimit, setSessionLimit] = useState(SESSION_PAGE_SIZE)
   const [range, setRange] = useState<InsightRange>(30)
   const [selectedDate, setSelectedDate] = useState<string>()
+  const [operationalDrilldown, setOperationalDrilldown] = useState(false)
   const [sessionOpenError, setSessionOpenError] = useState<string>()
   const [analysis, setAnalysis] = useState<TrajectoryAnalysisState>({ status: 'idle' })
   const [analysisCatalog, setAnalysisCatalog] = useState<AnalysisCatalogState>({ status: 'loading' })
@@ -1017,8 +1039,14 @@ export function TokenUsageSection({
     [filteredSessions, sessionLimit],
   )
   const selectedDay = useMemo(
-    () => selectedDate === undefined ? undefined : data.days.find(day => day.date === selectedDate),
-    [data.days, selectedDate],
+    () => selectedDate === undefined
+      ? undefined
+      : (operationalDrilldown ? data.operationalDays : data.days).find(day => day.date === selectedDate),
+    [data.days, data.operationalDays, operationalDrilldown, selectedDate],
+  )
+  const selectedDaySessions = useMemo(
+    () => operationalDrilldown ? data.sessions.filter(row => row.dailyUsageReliable) : data.sessions,
+    [data.sessions, operationalDrilldown],
   )
   const billedInput = inputTokens(data.usage)
   const cacheHit = billedInput === 0 ? '—' : `${Math.round(data.usage.cacheReadTokens / billedInput * 100)}%`
@@ -1051,9 +1079,19 @@ export function TokenUsageSection({
           </div>
 
           <PeriodInsights days={data.days} range={range} onRangeChange={setRange} t={t} />
-          <EfficiencyPanel usage={data.usage} compactionUsage={data.compactionUsage} models={data.models} t={t} />
-          <OperationsPanel days={data.days} onSelectDate={setSelectedDate} t={t} />
-          <BudgetPanel days={data.days} snapshot={budget} setBudget={setBudget} t={t} />
+          <EfficiencyPanel
+            usage={data.usage}
+            compactionUsage={data.compactionUsage}
+            models={data.models}
+            assistantAttempts={data.assistantRequests}
+            compactionAttempts={data.compactionRequests}
+            t={t}
+          />
+          <OperationsPanel days={data.operationalDays} onSelectDate={(date) => {
+            setOperationalDrilldown(true)
+            setSelectedDate(date)
+          }} t={t} />
+          <BudgetPanel days={data.days} operationalDays={data.operationalDays} snapshot={budget} setBudget={setBudget} t={t} />
           <div className={css.pricingNotice}>
             <strong>{t('pricingTitle')}</strong>
             <p>{t('pricingIntro', {
@@ -1074,8 +1112,14 @@ export function TokenUsageSection({
             onAnalyze={runUsageAnalysis}
             t={t}
           />
-          <ActivityHeatmap days={data.days} selectedDate={selectedDate} onSelectDate={setSelectedDate} t={t} />
-          {selectedDay === undefined ? null : <DayDrilldown day={selectedDay} sessions={data.sessions} t={t} onClose={() => { setSelectedDate(undefined) }} />}
+          <ActivityHeatmap days={data.days} selectedDate={selectedDate} onSelectDate={(date) => {
+            setOperationalDrilldown(false)
+            setSelectedDate(date)
+          }} t={t} />
+          {selectedDay === undefined ? null : <DayDrilldown day={selectedDay} sessions={selectedDaySessions} t={t} onClose={() => {
+            setSelectedDate(undefined)
+            setOperationalDrilldown(false)
+          }} />}
 
           <div className={css.block}>
             <div className={css.blockHead}>

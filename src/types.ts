@@ -158,6 +158,8 @@ export interface TokenUsageAnalysisModelSelection {
 /** Aggregate Token fields sent to an on-demand usage-analysis model call. */
 export interface TokenUsageAnalysisInput {
   usage: TokenUsageBuckets
+  assistantRequests: number
+  compactionRequests: number
   /** Exact aggregate provider usage consumed by context compaction. */
   compactionUsage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]

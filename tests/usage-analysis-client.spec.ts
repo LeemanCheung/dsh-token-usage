@@ -7,6 +7,8 @@ import {
 
 const input = {
   usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 },
+  assistantRequests: 1,
+  compactionRequests: 0,
   compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
   models: [],
   days: [],

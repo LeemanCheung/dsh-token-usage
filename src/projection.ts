@@ -209,7 +209,9 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
       if (current === null || current.turn !== event.data.turn || current.step !== event.data.step) return state
       return { ...state, lastAssistant: null }
     }
-    if (event.type === 'compaction/summary' && event.data.usage !== undefined) {
+    if (event.type === 'compaction/summary') {
+      const compactionRequests = state.compactionRequests + 1
+      if (event.data.usage === undefined) return { ...state, compactionRequests }
       const usage = bucketsFrom(event.data.usage)
       const route = { provider: event.data.provider, model: event.data.model }
       const models = { ...state.models }
@@ -218,7 +220,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
       adjustDay(days, dayKey(event.time), usage, 1)
       return {
         ...state,
-        compactionRequests: state.compactionRequests + 1,
+        compactionRequests,
         compactionUsage: addBuckets(state.compactionUsage, usage, 1),
         usage: addBuckets(state.usage, usage, 1),
         models,

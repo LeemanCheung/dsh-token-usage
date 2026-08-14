@@ -46,6 +46,8 @@ export function usageEfficiencyInsight(
   usage: TokenUsageBuckets,
   compactionUsage: TokenUsageBuckets,
   models: readonly ModelTokenUsageRecord[],
+  assistantAttempts: number,
+  compactionAttempts: number,
 ): UsageEfficiencyInsight {
   const total = totalTokens(usage)
   const input = inputTokens(usage)
@@ -53,8 +55,6 @@ export function usageEfficiencyInsight(
   const unattributedTokens = models
     .filter(isUnattributed)
     .reduce((sum, model) => sum + totalTokens(model.usage), 0)
-  const assistantAttempts = attributed.reduce((sum, model) => sum + model.assistantRequests, 0)
-  const compactionAttempts = attributed.reduce((sum, model) => sum + model.compactionRequests, 0)
   const assistantTokens = Math.max(0, total - totalTokens(compactionUsage))
   const topRoutes = attributed
     .map(model => ({

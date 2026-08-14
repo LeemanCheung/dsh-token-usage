@@ -221,7 +221,6 @@ describe('host apply', () => {
       language: 'zh',
       input: {
         usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 },
-        compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
         models: [{
           provider: 'deepseek', model: 'chat', assistantRequests: 2, compactionRequests: 0,
           usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 },

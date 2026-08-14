@@ -155,10 +155,16 @@ function usageAnalysisRequest(payload: unknown): {
   const input = payload.input
   if (language === undefined || model === undefined || !isRecord(input)) return undefined
   const usage = usageFrom(input.usage)
-  const compactionUsage = usageFrom(input.compactionUsage)
+  const assistantRequests = input.assistantRequests === undefined ? undefined : count(input.assistantRequests)
+  const compactionRequests = input.compactionRequests === undefined ? undefined : count(input.compactionRequests)
+  const compactionUsage = input.compactionUsage === undefined
+    ? { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+    : usageFrom(input.compactionUsage)
   const rawModels = input.models
   const rawDays = input.days
   if (usage === undefined || compactionUsage === undefined
+    || (input.assistantRequests !== undefined && assistantRequests === undefined)
+    || (input.compactionRequests !== undefined && compactionRequests === undefined)
     || !Array.isArray(rawModels) || rawModels.length > 512 || !Array.isArray(rawDays) || rawDays.length > 3_660) {
     return undefined
   }
@@ -170,6 +176,8 @@ function usageAnalysisRequest(payload: unknown): {
     model,
     input: {
       usage,
+      assistantRequests: assistantRequests ?? models.reduce((sum, model) => sum + model!.assistantRequests, 0),
+      compactionRequests: compactionRequests ?? models.reduce((sum, model) => sum + model!.compactionRequests, 0),
       compactionUsage,
       models: models as ModelTokenUsageRecord[],
       days: days as DailyTokenUsageRecord[],

@@ -13,6 +13,8 @@ describe('aggregate Token usage analysis', () => {
   it('keeps only detached aggregate model and date evidence in bounded contribution order', () => {
     const input = {
       usage: usage(120, 30),
+      assistantRequests: 3,
+      compactionRequests: 1,
       compactionUsage: usage(0),
       models: [
         { provider: 'small', model: 'model', assistantRequests: 1, compactionRequests: 0, usage: usage(1) },
@@ -26,6 +28,7 @@ describe('aggregate Token usage analysis', () => {
 
     const evidence = usageAnalysisEvidence(input)
 
+    expect(evidence).toMatchObject({ assistantRequests: 3, compactionRequests: 1 })
     expect(evidence.models.map(model => [model.provider, model.model])).toEqual([
       ['route', 'route-1'],
       ['route', 'route-2'],
@@ -49,6 +52,8 @@ describe('aggregate Token usage analysis', () => {
   it('does not let local price matches fingerprint raw routes in model evidence', () => {
     const input = {
       usage: usage(1_000_000, 1_000_000),
+      assistantRequests: 1,
+      compactionRequests: 1,
       compactionUsage: usage(100),
       models: [{
         provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
@@ -84,6 +89,8 @@ describe('aggregate Token usage analysis', () => {
 
     const result = await analyzeTokenUsage(ctx, {
       usage: usage(100, 20),
+      assistantRequests: 2,
+      compactionRequests: 0,
       compactionUsage: usage(0),
       models: [{ provider: 'provider-a', model: 'model-a', assistantRequests: 2, compactionRequests: 0, usage: usage(100, 20) }],
       days: [{ date: '2026-08-14', usage: usage(100, 20) }],

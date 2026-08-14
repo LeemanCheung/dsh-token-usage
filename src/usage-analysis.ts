@@ -81,6 +81,8 @@ function dailyEvidence(days: readonly DailyTokenUsageRecord[]): DailyTokenUsageR
 export function usageAnalysisEvidence(input: TokenUsageAnalysisInput): TokenUsageAnalysisInput {
   return {
     usage: copyUsage(input.usage),
+    assistantRequests: input.assistantRequests,
+    compactionRequests: input.compactionRequests,
     compactionUsage: copyUsage(input.compactionUsage),
     models: modelEvidence(rankedModels(input.models)),
     days: dailyEvidence(input.days),

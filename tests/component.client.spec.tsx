@@ -8,6 +8,7 @@ import {
   aggregateUsage,
   TokenUsageSection,
   totalTokens,
+  usageAnalysisInput,
   type TokenUsageSectionProps,
 } from '../src/client/TokenUsageSection.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -255,6 +256,27 @@ describe('TokenUsageSection', () => {
         cacheWriteTokens: 10,
       },
     }])
+    expect(data.operationalDays).toEqual([{
+      date: '1970-01-01',
+      usage: {
+        uncachedInputTokens: 100,
+        outputTokens: 30,
+        cacheReadTokens: 50,
+        cacheWriteTokens: 10,
+      },
+    }])
+    expect(usageAnalysisInput(data)).toMatchObject({
+      assistantRequests: 2,
+      compactionRequests: 1,
+      days: data.operationalDays,
+    })
+  })
+
+  it('does not turn synthetic legacy dates into run-rate or anomaly signals', () => {
+    render(<TokenUsageSection {...props([legacy])} />)
+
+    expect(screen.getAllByText('旧版回退记录没有真实逐日 bucket，因此不用于运行率、预测或异常信号。')).toHaveLength(2)
+    expect(screen.getByText('7 日日均 Token').parentElement?.querySelector('strong')?.textContent).toBe('—')
   })
 
   it('keeps distinct route pairs whose labels would collide', () => {

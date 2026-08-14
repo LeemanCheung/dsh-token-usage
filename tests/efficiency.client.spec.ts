@@ -18,11 +18,13 @@ describe('aggregate usage efficiency', () => {
         { provider: 'a', model: 'route', assistantRequests: 2, compactionRequests: 0, usage: usage(50, 20, 50, 0) },
         { provider: '', model: '', assistantRequests: 0, compactionRequests: 0, usage: usage(0, 0, 0, 10) },
       ],
+      3,
+      2,
     )
 
     expect(insight).toMatchObject({
       assistantAttempts: 3,
-      compactionAttempts: 1,
+      compactionAttempts: 2,
       assistantTokens: 180,
       tokensPerAssistantAttempt: undefined,
       compactionTokenShare: 1 / 7,
@@ -36,7 +38,7 @@ describe('aggregate usage efficiency', () => {
         { provider: 'b', model: 'route', tokens: 80, share: 8 / 21 },
       ],
     })
-    expect(insight.compactionsPerHundredAssistantAttempts).toBeCloseTo(100 / 3)
+    expect(insight.compactionsPerHundredAssistantAttempts).toBeCloseTo(200 / 3)
   })
 
   it('computes a per-attempt assistant average with fully attributed usage', () => {
@@ -44,13 +46,15 @@ describe('aggregate usage efficiency', () => {
       usage(10, 10),
       usage(2, 2),
       [{ provider: 'provider', model: 'model', assistantRequests: 2, compactionRequests: 1, usage: usage(10, 10) }],
+      2,
+      1,
     )
 
     expect(insight.tokensPerAssistantAttempt).toBe(8)
   })
 
   it('returns undefined instead of dividing zero-count or zero-input records', () => {
-    const insight = usageEfficiencyInsight(usage(0), usage(0), [])
+    const insight = usageEfficiencyInsight(usage(0), usage(0), [], 0, 0)
 
     expect(insight).toMatchObject({
       tokensPerAssistantAttempt: undefined,

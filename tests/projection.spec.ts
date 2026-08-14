@@ -357,6 +357,21 @@ describe('tokenUsageRecorder projection', () => {
     })
   })
 
+  it('counts a compaction attempt even when provider usage is unavailable', () => {
+    const state = definition.apply(definition.init(), event({
+      seq: 0,
+      time: 1,
+      type: 'compaction/summary',
+      data: { provider: 'deepseek', model: 'deepseek-chat', summary: 'private' },
+    }))
+
+    expect(definition.view(state)).toMatchObject({
+      compactionRequests: 1,
+      compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    })
+  })
+
   it('returns the same state for duplicate final usage', () => {
     let state = definition.init()
     const sample = event({
