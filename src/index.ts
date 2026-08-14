@@ -194,8 +194,9 @@ interface AnalysisModelCatalog {
 }
 
 /** Stop awaiting an API that cannot consume AbortSignal when its owning lifecycle ends. */
-function awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+function awaitWithAbort<T>(start: () => Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted()
+  const operation = start()
   return new Promise<T>((resolve, reject) => {
     const aborted = (): void => {
       signal.removeEventListener('abort', aborted)
@@ -226,7 +227,7 @@ async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>, signal: Abor
   const seen = new Set<string>()
   for (const provider of ctx.llm.listProviders()) {
     try {
-      const listed = await awaitWithAbort(ctx.llm.listModels(provider.id), signal)
+      const listed = await awaitWithAbort(() => ctx.llm.listModels(provider.id), signal)
       for (const model of listed) {
         const key = `${provider.id}\u0000${model.id}`
         if (seen.has(key)) continue
