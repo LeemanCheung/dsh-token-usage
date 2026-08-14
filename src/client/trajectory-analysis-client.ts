@@ -17,20 +17,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const TOKEN_BUCKET_KEYS = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'] as const
+
 /** Decode the plugin's four disjoint buckets. */
 function bucketsOf(value: unknown): TokenUsageBuckets | undefined {
   if (!isRecord(value)) return undefined
-  const keys = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'] as const
-  if (!keys.every(key => typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0)) return undefined
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as unknown as TokenUsageBuckets
+  if (!TOKEN_BUCKET_KEYS.every(key => typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0)) return undefined
+  return Object.fromEntries(TOKEN_BUCKET_KEYS.map(key => [key, value[key]])) as unknown as TokenUsageBuckets
 }
 
 /** Decode a signed bucket delta. */
 function signedBucketsOf(value: unknown): SignedTokenUsageBuckets | undefined {
   if (!isRecord(value)) return undefined
-  const keys = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'] as const
-  if (!keys.every(key => typeof value[key] === 'number' && Number.isFinite(value[key]))) return undefined
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as unknown as SignedTokenUsageBuckets
+  if (!TOKEN_BUCKET_KEYS.every(key => typeof value[key] === 'number' && Number.isFinite(value[key]))) return undefined
+  return Object.fromEntries(TOKEN_BUCKET_KEYS.map(key => [key, value[key]])) as unknown as SignedTokenUsageBuckets
+}
+
+/** Compare bucket sets without collapsing cache categories. */
+function sameBuckets(left: TokenUsageBuckets, right: TokenUsageBuckets): boolean {
+  return TOKEN_BUCKET_KEYS.every(key => left[key] === right[key])
+}
+
+/** Sum the four provider buckets for largest-node validation. */
+function totalTokens(usage: TokenUsageBuckets): number {
+  return TOKEN_BUCKET_KEYS.reduce((total, key) => total + usage[key], 0)
 }
 
 /** Decode one metadata-only provider usage span. */
@@ -80,7 +90,11 @@ function reconciliationOf(value: unknown): TrajectoryReconciliation | undefined 
   const providerUsage = bucketsOf(value.providerUsage)
   const attributedUsage = bucketsOf(value.attributedUsage)
   const delta = signedBucketsOf(value.delta)
-  return providerUsage === undefined || attributedUsage === undefined || delta === undefined ? undefined : {
+  if (providerUsage === undefined || attributedUsage === undefined || delta === undefined) return undefined
+  const expectedDelta = Object.fromEntries(TOKEN_BUCKET_KEYS.map(key => [key, providerUsage[key] - attributedUsage[key]])) as unknown as SignedTokenUsageBuckets
+  const matched = TOKEN_BUCKET_KEYS.every(key => expectedDelta[key] === 0)
+  if (!TOKEN_BUCKET_KEYS.every(key => delta[key] === expectedDelta[key]) || (value.status === 'matched') !== matched) return undefined
+  return {
     status: value.status,
     providerUsage,
     attributedUsage,
@@ -122,6 +136,13 @@ function metricsOf(value: unknown, legacy: boolean): TrajectoryMetrics | undefin
   const spans = rawSpans.map(spanOf)
   if (spans.some(span => span === undefined)
     || (value.largestSpanId !== undefined && typeof value.largestSpanId !== 'string')) return undefined
+  const decodedSpans = spans as TrajectoryUsageSpan[]
+  if (decodedSpans.length > 0 && value.largestSpanId === undefined) return undefined
+  if (value.largestSpanId !== undefined) {
+    const largest = decodedSpans.find(span => span.id === value.largestSpanId)
+    const maximumTokens = decodedSpans.reduce((maximum, span) => Math.max(maximum, totalTokens(span.usage)), 0)
+    if (largest === undefined || totalTokens(largest.usage) !== maximumTokens) return undefined
+  }
 
   const reconciliation = value.reconciliation === undefined && legacy
     ? {
@@ -132,12 +153,22 @@ function metricsOf(value: unknown, legacy: boolean): TrajectoryMetrics | undefin
       }
     : reconciliationOf(value.reconciliation)
   if (reconciliation === undefined) return undefined
+  if (reconciliation.status !== 'unavailable') {
+    const attributedUsage = decodedSpans.reduce<TokenUsageBuckets>((total, span) => ({
+      uncachedInputTokens: total.uncachedInputTokens + span.usage.uncachedInputTokens,
+      outputTokens: total.outputTokens + span.usage.outputTokens,
+      cacheReadTokens: total.cacheReadTokens + span.usage.cacheReadTokens,
+      cacheWriteTokens: total.cacheWriteTokens + span.usage.cacheWriteTokens,
+    }), { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
+    if (!sameBuckets(usage, reconciliation.providerUsage)
+      || !sameBuckets(attributedUsage, reconciliation.attributedUsage)) return undefined
+  }
   return {
     ...Object.fromEntries(BASE_METRIC_KEYS.map(key => [key, value[key]])),
     ...additive,
     usage,
     retryUsage,
-    spans: spans as TrajectoryUsageSpan[],
+    spans: decodedSpans,
     ...value.largestSpanId === undefined ? {} : { largestSpanId: value.largestSpanId },
     reconciliation,
   } as unknown as TrajectoryMetrics

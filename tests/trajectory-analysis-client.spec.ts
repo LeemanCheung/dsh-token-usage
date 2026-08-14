@@ -103,6 +103,45 @@ describe('trajectory analysis client decoder', () => {
     expect(trajectoryAnalysisOf(value)).toBeUndefined()
   })
 
+  it('rejects reconciliation status or deltas that contradict the bucket totals', () => {
+    const value = report()
+    value.metrics.reconciliation.delta.uncachedInputTokens = 1
+    expect(trajectoryAnalysisOf(value)).toBeUndefined()
+  })
+
+  it('rejects reconciliation totals that disagree with canonical usage or decoded spans', () => {
+    const providerMismatch = report()
+    providerMismatch.metrics.usage.uncachedInputTokens = 11
+    expect(trajectoryAnalysisOf(providerMismatch)).toBeUndefined()
+
+    const spanMismatch = report()
+    spanMismatch.metrics.reconciliation.status = 'mismatch'
+    spanMismatch.metrics.reconciliation.attributedUsage.uncachedInputTokens = 9
+    spanMismatch.metrics.reconciliation.delta.uncachedInputTokens = 1
+    expect(trajectoryAnalysisOf(spanMismatch)).toBeUndefined()
+  })
+
+  it('requires the largest span id to reference a truly largest decoded span', () => {
+    const omitted = report()
+    delete (omitted.metrics as Partial<typeof omitted.metrics>).largestSpanId
+    expect(trajectoryAnalysisOf(omitted)).toBeUndefined()
+
+    const absent = report()
+    absent.metrics.largestSpanId = 'model:missing'
+    expect(trajectoryAnalysisOf(absent)).toBeUndefined()
+
+    const smaller = report()
+    smaller.metrics.spans.push({
+      ...smaller.metrics.spans[0]!,
+      id: 'model:2:1:0',
+      seq: 2,
+      turn: 2,
+      usage: zero,
+    })
+    smaller.metrics.largestSpanId = 'model:2:1:0'
+    expect(trajectoryAnalysisOf(smaller)).toBeUndefined()
+  })
+
   it('rejects reports that omit reconciliation evidence', () => {
     const value = report()
     delete (value.metrics as Partial<typeof value.metrics>).reconciliation
