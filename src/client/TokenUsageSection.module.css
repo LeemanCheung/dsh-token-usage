@@ -101,23 +101,33 @@
 
 .activityGrid {
   display: grid;
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   grid-auto-flow: column;
-  grid-auto-columns: 10px;
-  grid-template-rows: repeat(7, 10px);
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  grid-template-rows: repeat(7, minmax(0, 1fr));
   gap: 3px;
-  overflow-x: auto;
   padding: 2px;
 }
 
 .activityGrid i,
 .activityLegend i {
   display: block;
-  width: 10px;
-  height: 10px;
   flex: 0 0 auto;
   border-radius: 2px;
   background: var(--dsw-alias-bg-module-platform);
+}
+
+.activityGrid i {
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 1;
+}
+
+.activityLegend i {
+  width: 10px;
+  height: 10px;
 }
 
 .activityGrid i[data-level='1'],
