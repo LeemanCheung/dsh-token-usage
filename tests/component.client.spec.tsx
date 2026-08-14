@@ -301,6 +301,36 @@ describe('TokenUsageSection', () => {
     expect(screen.getAllByText('8.3M').length).toBeGreaterThan(0)
   })
 
+  it('renders a public-rate cost estimate with explicit coverage for exact routes', () => {
+    const priced = summary({
+      id: 'session-priced' as SessionSummary['id'],
+      displayTitle: '已计价会话',
+      updatedAt: 4_000,
+      projectionValues: {
+        tokenUsageRecorder: {
+          assistantRequests: 1,
+          compactionRequests: 0,
+          usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+          models: [{
+            provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
+            usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+          }],
+          days: [{
+            date: '2026-08-14',
+            usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+          }],
+        },
+      },
+    })
+    render(<TokenUsageSection {...props([priced])} />)
+
+    expect(screen.getAllByText('估算费用（USD）')).toHaveLength(2)
+    expect(screen.getByText('费率覆盖')).toBeTruthy()
+    expect(screen.getByText('100%')).toBeTruthy()
+    expect(screen.getAllByText(/2\.53/)).toHaveLength(2)
+    expect(screen.getByTitle(/缓存读 \$0\.025/)).toBeTruthy()
+  })
+
   it('renders daily Token activity as a heatmap cell', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
     render(<TokenUsageSection {...props([activity])} />)

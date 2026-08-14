@@ -45,6 +45,35 @@ describe('aggregate Token usage analysis', () => {
     expect(JSON.stringify(evidence)).not.toContain('session')
   })
 
+  it('keeps public cost evidence route-anonymous and marks partial coverage', () => {
+    const evidence = usageAnalysisEvidence({
+      usage: usage(1_000_000, 1_000_000),
+      models: [
+        {
+          provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
+          usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+        },
+        { provider: 'private-relay', model: 'internal', assistantRequests: 1, compactionRequests: 0, usage: usage(10) },
+      ],
+      days: [],
+    })
+
+    expect(evidence.pricing).toMatchObject({
+      currency: 'USD',
+      estimatedCostUSD: 2.525,
+      coveredTokens: 4_000_000,
+      totalTokens: 4_000_010,
+      coveredModels: 1,
+      totalModels: 2,
+      routes: [
+        { route: 'route-1', estimatedCostUSD: 2.525 },
+        { route: 'route-2' },
+      ],
+    })
+    expect(JSON.stringify(evidence)).not.toContain('gpt-5-mini')
+    expect(JSON.stringify(evidence)).not.toContain('private-relay')
+  })
+
   it('dispatches one selected model call with aggregate-only evidence and returns its Token usage', async () => {
     const stream = vi.fn(async function* () {
       yield { type: 'text-delta' as const, index: 0, text: '# Usage overview\n\nCache efficiency is high.' }

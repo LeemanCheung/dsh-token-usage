@@ -7,6 +7,7 @@ import {
   type FinishReason,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
+import { PUBLIC_PRICE_CATALOG_AS_OF, tokenUsageCostSummary } from './pricing.ts'
 import type {
   DailyTokenUsageRecord,
   ModelTokenUsageRecord,
@@ -35,8 +36,8 @@ function copyUsage(usage: TokenUsageBuckets): TokenUsageBuckets {
   }
 }
 
-/** Select the largest model routes and replace raw route ids with report-local aliases. */
-function modelEvidence(models: readonly ModelTokenUsageRecord[]): ModelTokenUsageRecord[] {
+/** Select the largest source route records in stable contribution order. */
+function rankedModels(models: readonly ModelTokenUsageRecord[]): ModelTokenUsageRecord[] {
   return models
     .map((model, index) => ({ model, index }))
     .sort((left, right) => totalTokens(right.model.usage) - totalTokens(left.model.usage)
@@ -48,13 +49,24 @@ function modelEvidence(models: readonly ModelTokenUsageRecord[]): ModelTokenUsag
       || right.model.usage.cacheWriteTokens - left.model.usage.cacheWriteTokens
       || left.index - right.index)
     .slice(0, MAX_MODEL_ROWS)
-    .map(({ model }, index) => ({
-      provider: 'route',
-      model: `route-${index + 1}`,
+    .map(({ model }) => ({
+      provider: model.provider,
+      model: model.model,
       assistantRequests: model.assistantRequests,
       compactionRequests: model.compactionRequests,
       usage: copyUsage(model.usage),
     }))
+}
+
+/** Replace raw route ids with stable report-local aliases. */
+function modelEvidence(models: readonly ModelTokenUsageRecord[]): ModelTokenUsageRecord[] {
+  return models.map((model, index) => ({
+    provider: 'route',
+    model: `route-${index + 1}`,
+    assistantRequests: model.assistantRequests,
+    compactionRequests: model.compactionRequests,
+    usage: copyUsage(model.usage),
+  }))
 }
 
 /** Select the latest UTC date records in chronological order. */
@@ -66,12 +78,41 @@ function dailyEvidence(days: readonly DailyTokenUsageRecord[]): DailyTokenUsageR
     .map(day => ({ date: day.date, usage: copyUsage(day.usage) }))
 }
 
+interface UsageAnalysisEvidence extends TokenUsageAnalysisInput {
+  pricing: {
+    catalogAsOf: string
+    currency: 'USD'
+    estimatedCostUSD: number
+    coveredTokens: number
+    totalTokens: number
+    coveredModels: number
+    totalModels: number
+    routes: readonly { route: string; estimatedCostUSD?: number }[]
+  }
+}
+
 /** Build the only aggregate evidence supplied to the selected model. */
-export function usageAnalysisEvidence(input: TokenUsageAnalysisInput): TokenUsageAnalysisInput {
+export function usageAnalysisEvidence(input: TokenUsageAnalysisInput): UsageAnalysisEvidence {
+  const ranked = rankedModels(input.models)
+  const totalCost = tokenUsageCostSummary(input.models)
+  const rankedCosts = tokenUsageCostSummary(ranked)
   return {
     usage: copyUsage(input.usage),
-    models: modelEvidence(input.models),
+    models: modelEvidence(ranked),
     days: dailyEvidence(input.days),
+    pricing: {
+      catalogAsOf: PUBLIC_PRICE_CATALOG_AS_OF,
+      currency: 'USD',
+      estimatedCostUSD: totalCost.totalCostUSD,
+      coveredTokens: totalCost.coveredTokens,
+      totalTokens: totalCost.totalTokens,
+      coveredModels: totalCost.coveredModels,
+      totalModels: totalCost.totalModels,
+      routes: rankedCosts.models.map((model, index) => ({
+        route: `route-${index + 1}`,
+        ...model.totalCostUSD === undefined ? {} : { estimatedCostUSD: model.totalCostUSD },
+      })),
+    },
   }
 }
 
@@ -96,9 +137,9 @@ function systemPrompt(language: string): string {
   const chinese = language.toLowerCase().startsWith('zh')
   const reportLanguage = chinese ? '简体中文' : 'English'
   const sections = chinese
-    ? '1. 用量概览\n2. 输入、输出与缓存效率\n3. 模型与路由贡献\n4. 时间趋势、峰值与波动\n5. 风险与不确定性\n6. 分级优化建议\n7. 后续观测重点'
-    : '1. Usage overview\n2. Input, output, and cache efficiency\n3. Model and route contribution\n4. Time trends, peaks, and volatility\n5. Risks and uncertainty\n6. Prioritized optimization recommendations\n7. Next measurement focus'
-  return `You are a senior LLM FinOps and performance analyst. Analyze aggregate DeepSeek Harness Token-usage evidence only.\n\nWrite concise Markdown in ${reportLanguage} with these exact top-level sections:\n${sections}\n\nRequirements:\n- Use only the supplied aggregate Token buckets, report-local route aliases, request counts, compaction counts, and UTC daily records. Do not claim to have session titles, prompts, responses, raw provider/model ids, prices, latency, quality, or user intent.\n- State the evidence behind each material claim with an exact bucket, route alias, UTC date, count, or trend. Distinguish facts from hypotheses.\n- Explain uncached input, output, cache reads, and cache writes separately. Do not treat cache reads as free or claim a monetary cost without price data.\n- Analyze concentration, compaction pressure, cache behavior, output-to-input balance, peaks, volatility, and changes in the supplied date coverage.\n- End the optimization section with 3-7 P0/P1/P2 recommendations. For each give evidence, expected Token-efficiency benefit, confidence, and implementation effort.\n- When the evidence is insufficient, say what additional aggregate measurement would resolve it. Never invent savings, costs, or causal explanations.`
+    ? '1. 用量与费用概览\n2. 输入、输出与缓存效率\n3. 模型与路由贡献\n4. 时间趋势、峰值与波动\n5. 价格覆盖、风险与不确定性\n6. 分级优化建议\n7. 后续观测重点'
+    : '1. Usage and cost overview\n2. Input, output, and cache efficiency\n3. Model and route contribution\n4. Time trends, peaks, and volatility\n5. Price coverage, risks, and uncertainty\n6. Prioritized optimization recommendations\n7. Next measurement focus'
+  return `You are a senior LLM FinOps and performance analyst. Analyze aggregate DeepSeek Harness Token-usage evidence only.\n\nWrite concise Markdown in ${reportLanguage} with these exact top-level sections:\n${sections}\n\nRequirements:\n- Use only the supplied aggregate Token buckets, report-local route aliases, request counts, compaction counts, UTC daily records, and optional public USD price evidence. Do not claim to have session titles, prompts, responses, raw provider/model ids, latency, quality, invoices, or user intent.\n- State the evidence behind each material claim with an exact bucket, route alias, UTC date, count, trend, or provided cost field. Distinguish facts from hypotheses.\n- Explain uncached input, output, cache reads, and cache writes separately. Do not treat cache reads as free.\n- Treat estimatedCostUSD as a static public-rate estimate, never an invoice. State coverage before making a cost recommendation; do not price uncovered routes or infer prices from similar models.\n- Analyze concentration, compaction pressure, cache behavior, output-to-input balance, peaks, volatility, and changes in the supplied date coverage.\n- End the optimization section with 3-7 P0/P1/P2 recommendations. For each give evidence, expected Token-efficiency or cost benefit, confidence, and implementation effort.\n- When the evidence is insufficient, say what additional aggregate measurement would resolve it. Never invent savings, costs, or causal explanations.`
 }
 
 /** Analyze bounded aggregate Token usage through one user-selected model route. */

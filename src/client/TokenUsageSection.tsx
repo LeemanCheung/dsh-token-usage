@@ -16,6 +16,7 @@ import type {
 import type { TokenUsageBudgetSnapshot } from './budget-controller.ts'
 import { dailyContributors, periodInsight } from './analytics.ts'
 import { dailyUsageCsv, modelUsageCsv, tokenUsageJson, type DownloadPort } from './export.ts'
+import { PUBLIC_PRICE_CATALOG_AS_OF, tokenUsageCostSummary } from '../pricing.ts'
 import type { TokenUsageAnalysisModelCatalog } from './usage-analysis-client.ts'
 import { NS } from './locales.ts'
 import css from './TokenUsageSection.module.css'
@@ -117,6 +118,16 @@ export function totalTokens(usage: TokenUsageBuckets): number {
 /** Locale-aware exact integer formatting. */
 function formatTokens(value: number): string {
   return new Intl.NumberFormat().format(value)
+}
+
+/** Format one public-rate estimate in USD without implying accounting precision. */
+function formatUSD(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: value < 1 ? 4 : 2,
+    maximumFractionDigits: value < 1 ? 4 : 2,
+  }).format(value)
 }
 
 /** Compact a token count with a stable K/M/B suffix for dense dashboard cells. */
@@ -772,6 +783,11 @@ export function TokenUsageSection({
     })
   }
 
+  const costSummary = useMemo(() => tokenUsageCostSummary(data.models), [data.models])
+  const priceCoverage = costSummary.totalTokens === 0
+    ? 0
+    : Math.round(costSummary.coveredTokens / costSummary.totalTokens * 100)
+
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const filteredSessions = useMemo(() => data.sessions.filter(row => {
     if (normalizedQuery.length === 0) return true
@@ -807,11 +823,23 @@ export function TokenUsageSection({
             <Metric label={t('inputTokens')} value={billedInput} />
             <Metric label={t('outputTokens')} value={data.usage.outputTokens} />
             <Metric label={t('cacheHit')} value={cacheHit} />
+            <Metric label={t('estimatedCost')} value={costSummary.coveredTokens === 0 ? '—' : formatUSD(costSummary.totalCostUSD)} />
+            <Metric label={t('priceCoverage')} value={`${priceCoverage}%`} />
             <Metric label={t('sessions')} value={data.sessions.length} />
           </div>
 
           <PeriodInsights days={data.days} range={range} onRangeChange={setRange} t={t} />
           <BudgetPanel days={data.days} snapshot={budget} setBudget={setBudget} t={t} />
+          <div className={css.pricingNotice}>
+            <strong>{t('pricingTitle')}</strong>
+            <p>{t('pricingIntro', {
+              asOf: PUBLIC_PRICE_CATALOG_AS_OF,
+              covered: formatCompactTokens(costSummary.coveredTokens),
+              total: formatCompactTokens(costSummary.totalTokens),
+              routes: costSummary.coveredModels,
+              allRoutes: costSummary.totalModels,
+            })}</p>
+          </div>
           <UsageAnalysisPanel
             catalog={analysisCatalog}
             selectedModel={selectedAnalysisModel}
@@ -835,10 +863,11 @@ export function TokenUsageSection({
                       <th>{t('total')}</th>
                       <th>{t('input')}</th>
                       <th>{t('output')}</th>
+                      <th>{t('estimatedCost')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.models.map(model => (
+                    {costSummary.models.map(model => (
                       <tr key={modelKey(model)}>
                         <td>{isUnattributed(model)
                           ? <strong>{t('unattributed')}</strong>
@@ -865,6 +894,15 @@ export function TokenUsageSection({
                           ) : null}
                         </td>
                         <td><TokenValue value={model.usage.outputTokens} /></td>
+                        <td>{model.totalCostUSD === undefined || model.rate === undefined
+                          ? <span className={css.priceUnknown} title={t('priceUnavailable')}>—</span>
+                          : <span className={css.priceValue} title={t('priceRate', {
+                            input: model.rate.inputPerMillion,
+                            output: model.rate.outputPerMillion,
+                            cacheRead: model.rate.cacheReadPerMillion,
+                            cacheWrite: model.rate.cacheWritePerMillion,
+                            asOf: model.rate.asOf,
+                          })}>{formatUSD(model.totalCostUSD)}</span>}</td>
                       </tr>
                     ))}
                   </tbody>

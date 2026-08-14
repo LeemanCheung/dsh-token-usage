@@ -109,6 +109,34 @@ export interface TokenUsageAnalysisModel {
   modelName: string
 }
 
+/** Public USD rates per one million Tokens for one exact provider/model route. */
+export interface TokenUsagePriceRate {
+  currency: 'USD'
+  inputPerMillion: number
+  outputPerMillion: number
+  cacheReadPerMillion: number
+  cacheWritePerMillion: number
+  sourceUrl: string
+  asOf: string
+}
+
+/** One model aggregate with matched public pricing, when its exact route is covered. */
+export interface PricedModelTokenUsageRecord extends ModelTokenUsageRecord {
+  totalCostUSD?: number
+  rate?: TokenUsagePriceRate
+}
+
+/** One detached USD estimate and its explicit Token coverage. */
+export interface TokenUsageCostSummary {
+  currency: 'USD'
+  totalCostUSD: number
+  coveredTokens: number
+  totalTokens: number
+  coveredModels: number
+  totalModels: number
+  models: readonly PricedModelTokenUsageRecord[]
+}
+
 /** User-selected model route for one auxiliary analysis call. */
 export interface TokenUsageAnalysisModelSelection {
   provider: string

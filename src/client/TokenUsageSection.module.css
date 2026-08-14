@@ -625,6 +625,39 @@
   outline-offset: 1px;
 }
 
+.pricingNotice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.pricingNotice strong {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pricingNotice p {
+  margin: 0;
+}
+
+.priceUnknown {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.priceValue {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .analysisModelSelect {
   display: grid;
   min-width: 180px;
@@ -703,6 +736,12 @@
 
   .budgetInput {
     justify-content: space-between;
+  }
+
+  .pricingNotice {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .budgetProgress {
