@@ -302,19 +302,23 @@ describe('TokenUsageSection', () => {
     expect(screen.getAllByText('8.3M').length).toBeGreaterThan(0)
   })
 
-  it('renders a public-rate cost estimate with explicit coverage for exact routes', () => {
+  it('renders a public-rate estimate without rounding partial coverage to complete', () => {
     const priced = summary({
       id: 'session-priced' as SessionSummary['id'],
       displayTitle: '已计价会话',
       updatedAt: 4_000,
       projectionValues: {
         tokenUsageRecorder: {
-          assistantRequests: 1,
+          assistantRequests: 2,
           compactionRequests: 0,
-          usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+          compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          usage: { uncachedInputTokens: 1_000_001, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
           models: [{
             provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
             usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+          }, {
+            provider: 'private-relay', model: 'unknown', assistantRequests: 1, compactionRequests: 0,
+            usage: { uncachedInputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
           }],
           days: [{
             date: '2026-08-14',
@@ -327,9 +331,10 @@ describe('TokenUsageSection', () => {
 
     expect(screen.getAllByText('估算费用（USD）')).toHaveLength(2)
     expect(screen.getByText('费率覆盖')).toBeTruthy()
-    expect(screen.getAllByText('100%').length).toBeGreaterThan(0)
+    expect(screen.getByText('费率覆盖').parentElement?.querySelector('strong')?.textContent).toBe('99.9%')
     expect(screen.getAllByText(/2\.53/)).toHaveLength(2)
     expect(screen.getByTitle(/缓存读 \$0\.025/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: '查看官方费率来源' }).getAttribute('href')).toBe('https://developers.openai.com/api/docs/pricing')
   })
 
   it('renders daily Token activity as a heatmap cell', () => {

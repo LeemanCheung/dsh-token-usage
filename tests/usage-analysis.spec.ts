@@ -46,34 +46,26 @@ describe('aggregate Token usage analysis', () => {
     expect(JSON.stringify(evidence)).not.toContain('session')
   })
 
-  it('keeps public cost evidence route-anonymous and marks partial coverage', () => {
-    const evidence = usageAnalysisEvidence({
+  it('does not let local price matches fingerprint raw routes in model evidence', () => {
+    const input = {
       usage: usage(1_000_000, 1_000_000),
-      compactionUsage: usage(0),
-      models: [
-        {
-          provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
-          usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
-        },
-        { provider: 'private-relay', model: 'internal', assistantRequests: 1, compactionRequests: 0, usage: usage(10) },
-      ],
+      compactionUsage: usage(100),
+      models: [{
+        provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
+        usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+      }],
       days: [],
+    }
+    const pricedRoute = usageAnalysisEvidence(input)
+    const renamedRoute = usageAnalysisEvidence({
+      ...input,
+      models: input.models.map(model => ({ ...model, provider: 'private-relay', model: 'internal' })),
     })
 
-    expect(evidence.pricing).toMatchObject({
-      currency: 'USD',
-      estimatedCostUSD: 2.525,
-      coveredTokens: 4_000_000,
-      totalTokens: 4_000_010,
-      coveredModels: 1,
-      totalModels: 2,
-      routes: [
-        { route: 'route-1', estimatedCostUSD: 2.525 },
-        { route: 'route-2' },
-      ],
-    })
-    expect(JSON.stringify(evidence)).not.toContain('gpt-5-mini')
-    expect(JSON.stringify(evidence)).not.toContain('private-relay')
+    expect(renamedRoute).toEqual(pricedRoute)
+    expect(pricedRoute.compactionUsage).toEqual(usage(100))
+    expect(pricedRoute).not.toHaveProperty('pricing')
+    expect(JSON.stringify(pricedRoute)).not.toContain('gpt-5-mini')
   })
 
   it('dispatches one selected model call with aggregate-only evidence and returns its Token usage', async () => {

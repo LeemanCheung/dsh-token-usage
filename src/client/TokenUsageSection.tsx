@@ -18,7 +18,7 @@ import type { TokenUsageBudgetSnapshot } from './budget-controller.ts'
 import { dailyAnomalyInsight, dailyContributors, periodInsight, runRateInsight } from './analytics.ts'
 import { usageEfficiencyInsight } from './efficiency.ts'
 import { dailyUsageCsv, modelUsageCsv, tokenUsageJson, type DownloadPort } from './export.ts'
-import { PUBLIC_PRICE_CATALOG_AS_OF, tokenUsageCostSummary } from '../pricing.ts'
+import { PUBLIC_PRICE_CATALOG_AS_OF, PUBLIC_PRICE_CATALOG_URL, tokenUsageCostSummary } from '../pricing.ts'
 import type { TokenUsageAnalysisModelCatalog } from './usage-analysis-client.ts'
 import { NS } from './locales.ts'
 import css from './TokenUsageSection.module.css'
@@ -145,6 +145,15 @@ function formatUSD(value: number): string {
 /** Format a ratio without implying fractional measurement precision. */
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`
+}
+
+/** Format partial price coverage without ever rounding an incomplete estimate to 100%. */
+function formatCoveragePercent(covered: number, total: number): string {
+  if (total <= 0 || covered <= 0) return '0'
+  if (covered >= total) return '100'
+  const percent = covered / total * 100
+  if (percent < 0.1) return '<0.1'
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(Math.floor(percent * 10) / 10)
 }
 
 /** Compact a token count with a stable K/M/B suffix for dense dashboard cells. */
@@ -990,9 +999,7 @@ export function TokenUsageSection({
   }
 
   const costSummary = useMemo(() => tokenUsageCostSummary(data.models), [data.models])
-  const priceCoverage = costSummary.totalTokens === 0
-    ? 0
-    : Math.round(costSummary.coveredTokens / costSummary.totalTokens * 100)
+  const priceCoverage = formatCoveragePercent(costSummary.coveredTokens, costSummary.totalTokens)
   const sortedModels = useMemo(
     () => sortedModelHotspots(costSummary.models, modelSort),
     [costSummary.models, modelSort],
@@ -1051,11 +1058,12 @@ export function TokenUsageSection({
             <strong>{t('pricingTitle')}</strong>
             <p>{t('pricingIntro', {
               asOf: PUBLIC_PRICE_CATALOG_AS_OF,
-              covered: formatCompactTokens(costSummary.coveredTokens),
-              total: formatCompactTokens(costSummary.totalTokens),
+              covered: formatTokens(costSummary.coveredTokens),
+              total: formatTokens(costSummary.totalTokens),
               routes: costSummary.coveredModels,
               allRoutes: costSummary.totalModels,
             })}</p>
+            <a href={PUBLIC_PRICE_CATALOG_URL} target="_blank" rel="noreferrer">{t('pricingSource')}</a>
           </div>
           <UsageAnalysisPanel
             catalog={analysisCatalog}

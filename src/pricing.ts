@@ -9,7 +9,7 @@ import type {
 } from './types.ts'
 
 const TOKENS_PER_MILLION = 1_000_000
-const OPENAI_PRICING_URL = 'https://developers.openai.com/api/docs/pricing'
+export const PUBLIC_PRICE_CATALOG_URL = 'https://developers.openai.com/api/docs/pricing'
 
 interface CatalogRate extends TokenUsagePriceRate {
   provider: string
@@ -20,27 +20,27 @@ interface CatalogRate extends TokenUsagePriceRate {
  * OpenAI public USD API rates per million Tokens, retrieved from the official price page on 2025-08-07.
  *
  * Cache writes use the ordinary input price because these routes publish no separate cache-write tariff.
- * The catalog intentionally requires an exact provider/model match: relay, subscription, custom, and unknown
- * routes remain unpriced rather than borrowing a superficially similar rate.
+ * The catalog intentionally requires an exact provider/model label match and never borrows a superficially
+ * similar rate. A matching label does not verify the configured endpoint, reseller, contract, or invoice.
  */
 const PUBLIC_USD_RATES: readonly CatalogRate[] = [
-  { provider: 'openai', model: 'gpt-5', currency: 'USD', inputPerMillion: 1.25, cacheReadPerMillion: 0.125, cacheWritePerMillion: 1.25, outputPerMillion: 10, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-08-07' },
-  { provider: 'openai', model: 'gpt-5-2025-08-07', currency: 'USD', inputPerMillion: 1.25, cacheReadPerMillion: 0.125, cacheWritePerMillion: 1.25, outputPerMillion: 10, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-08-07' },
-  { provider: 'openai', model: 'gpt-5-mini', currency: 'USD', inputPerMillion: 0.25, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.25, outputPerMillion: 2, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-08-07' },
-  { provider: 'openai', model: 'gpt-5-mini-2025-08-07', currency: 'USD', inputPerMillion: 0.25, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.25, outputPerMillion: 2, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-08-07' },
-  { provider: 'openai', model: 'gpt-5-nano', currency: 'USD', inputPerMillion: 0.05, cacheReadPerMillion: 0.005, cacheWritePerMillion: 0.05, outputPerMillion: 0.4, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-08-07' },
-  { provider: 'openai', model: 'gpt-5-nano-2025-08-07', currency: 'USD', inputPerMillion: 0.05, cacheReadPerMillion: 0.005, cacheWritePerMillion: 0.05, outputPerMillion: 0.4, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-08-07' },
-  { provider: 'openai', model: 'gpt-4.1', currency: 'USD', inputPerMillion: 2, cacheReadPerMillion: 0.5, cacheWritePerMillion: 2, outputPerMillion: 8, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-04-14' },
-  { provider: 'openai', model: 'gpt-4.1-mini', currency: 'USD', inputPerMillion: 0.4, cacheReadPerMillion: 0.1, cacheWritePerMillion: 0.4, outputPerMillion: 1.6, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-04-14' },
-  { provider: 'openai', model: 'gpt-4.1-nano', currency: 'USD', inputPerMillion: 0.1, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.1, outputPerMillion: 0.4, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-04-14' },
-  { provider: 'openai', model: 'gpt-4o', currency: 'USD', inputPerMillion: 2.5, cacheReadPerMillion: 1.25, cacheWritePerMillion: 2.5, outputPerMillion: 10, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-04-14' },
-  { provider: 'openai', model: 'gpt-4o-mini', currency: 'USD', inputPerMillion: 0.15, cacheReadPerMillion: 0.075, cacheWritePerMillion: 0.15, outputPerMillion: 0.6, sourceUrl: OPENAI_PRICING_URL, asOf: '2025-04-14' },
+  { provider: 'openai', model: 'gpt-5', currency: 'USD', inputPerMillion: 1.25, cacheReadPerMillion: 0.125, cacheWritePerMillion: 1.25, outputPerMillion: 10, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-08-07' },
+  { provider: 'openai', model: 'gpt-5-2025-08-07', currency: 'USD', inputPerMillion: 1.25, cacheReadPerMillion: 0.125, cacheWritePerMillion: 1.25, outputPerMillion: 10, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-08-07' },
+  { provider: 'openai', model: 'gpt-5-mini', currency: 'USD', inputPerMillion: 0.25, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.25, outputPerMillion: 2, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-08-07' },
+  { provider: 'openai', model: 'gpt-5-mini-2025-08-07', currency: 'USD', inputPerMillion: 0.25, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.25, outputPerMillion: 2, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-08-07' },
+  { provider: 'openai', model: 'gpt-5-nano', currency: 'USD', inputPerMillion: 0.05, cacheReadPerMillion: 0.005, cacheWritePerMillion: 0.05, outputPerMillion: 0.4, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-08-07' },
+  { provider: 'openai', model: 'gpt-5-nano-2025-08-07', currency: 'USD', inputPerMillion: 0.05, cacheReadPerMillion: 0.005, cacheWritePerMillion: 0.05, outputPerMillion: 0.4, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-08-07' },
+  { provider: 'openai', model: 'gpt-4.1', currency: 'USD', inputPerMillion: 2, cacheReadPerMillion: 0.5, cacheWritePerMillion: 2, outputPerMillion: 8, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-04-14' },
+  { provider: 'openai', model: 'gpt-4.1-mini', currency: 'USD', inputPerMillion: 0.4, cacheReadPerMillion: 0.1, cacheWritePerMillion: 0.4, outputPerMillion: 1.6, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-04-14' },
+  { provider: 'openai', model: 'gpt-4.1-nano', currency: 'USD', inputPerMillion: 0.1, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.1, outputPerMillion: 0.4, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-04-14' },
+  { provider: 'openai', model: 'gpt-4o', currency: 'USD', inputPerMillion: 2.5, cacheReadPerMillion: 1.25, cacheWritePerMillion: 2.5, outputPerMillion: 10, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-04-14' },
+  { provider: 'openai', model: 'gpt-4o-mini', currency: 'USD', inputPerMillion: 0.15, cacheReadPerMillion: 0.075, cacheWritePerMillion: 0.15, outputPerMillion: 0.6, sourceUrl: PUBLIC_PRICE_CATALOG_URL, asOf: '2025-04-14' },
 ]
 
 /** Version marker displayed with every estimate, not a live pricing feed. */
 export const PUBLIC_PRICE_CATALOG_AS_OF = '2025-08-07'
 
-/** Return a detached public rate only for an exact first-party API route. */
+/** Return a detached public rate for one exact catalog label; this does not verify its billing endpoint. */
 export function publicPriceFor(provider: string, model: string): TokenUsagePriceRate | undefined {
   const rate = PUBLIC_USD_RATES.find(entry => entry.provider === provider && entry.model === model)
   return rate === undefined ? undefined : {
