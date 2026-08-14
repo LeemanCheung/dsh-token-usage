@@ -561,6 +561,7 @@ export async function analyzeTrajectory(
     model: selection.model,
     maxTokens: ANALYSIS_MAX_TOKENS,
   }, signal)
+  signal.throwIfAborted()
   const assembler = new BlockAssembler()
   for await (const chunk of preparedCall.stream({
     ...preparedCall.config,

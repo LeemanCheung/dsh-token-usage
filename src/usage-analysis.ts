@@ -167,6 +167,7 @@ export async function analyzeTokenUsage(
     model: selection.model,
     maxTokens: MAX_ANALYSIS_TOKENS,
   }, signal)
+  signal.throwIfAborted()
   const assembler = new BlockAssembler()
   for await (const chunk of preparedCall.stream({
     ...preparedCall.config,
