@@ -206,12 +206,21 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
     }
     if (event.type === 'llm/retry') {
       const current = state.lastAssistant
-      if (current === null || current.turn !== event.data.turn || current.step !== event.data.step) return state
+      if (current === null) {
+        const models = { ...state.models }
+        if (state.route !== null) adjustModel(models, state.route, zeroBuckets(), 1, 'assistant')
+        return { ...state, assistantRequests: state.assistantRequests + 1, models }
+      }
+      if (current.turn !== event.data.turn || current.step !== event.data.step) return state
       return { ...state, lastAssistant: null }
     }
     if (event.type === 'compaction/summary') {
       const compactionRequests = state.compactionRequests + 1
-      if (event.data.usage === undefined) return { ...state, compactionRequests }
+      if (event.data.usage === undefined) {
+        const models = { ...state.models }
+        adjustModel(models, { provider: event.data.provider, model: event.data.model }, zeroBuckets(), 1, 'compaction')
+        return { ...state, compactionRequests, models }
+      }
       const usage = bucketsFrom(event.data.usage)
       const route = { provider: event.data.provider, model: event.data.model }
       const models = { ...state.models }
@@ -289,7 +298,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
   }),
-  stateVersion: 4,
+  stateVersion: 5,
 }
 
 /** Fold one complete event sequence through the canonical persistent projection reducer. */

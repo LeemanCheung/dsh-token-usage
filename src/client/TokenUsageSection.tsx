@@ -70,6 +70,7 @@ interface DashboardData {
   models: ModelTokenUsageRecord[]
   days: DailyTokenUsageRecord[]
   operationalDays: DailyTokenUsageRecord[]
+  dailyCoverage: 'complete' | 'partial' | 'unavailable'
 }
 
 type InsightRange = 7 | 30 | 90
@@ -245,13 +246,15 @@ function sessionRow(summary: SessionSummary): SessionUsageRow | null {
   const recorded: TokenUsageRecorderProjection | undefined = summary.projectionValues?.tokenUsageRecorder
   const builtIn = summary.projectionValues?.tokenUsage
   const usage = recorded?.usage ?? (builtIn === undefined ? undefined : fallbackUsage(builtIn))
-  if (usage === undefined || totalTokens(usage) === 0) return null
+  const assistantRequests = recorded?.assistantRequests ?? 0
+  const compactionRequests = recorded?.compactionRequests ?? 0
+  if (usage === undefined || (totalTokens(usage) === 0 && assistantRequests === 0 && compactionRequests === 0)) return null
   return {
     id: summary.id,
     title: summary.displayTitle,
     updatedAt: summary.updatedAt,
-    assistantRequests: recorded?.assistantRequests ?? 0,
-    compactionRequests: recorded?.compactionRequests ?? 0,
+    assistantRequests,
+    compactionRequests,
     compactionUsage: recorded?.compactionUsage === undefined ? zeroBuckets() : { ...recorded.compactionUsage },
     usage,
     models: recorded?.models ?? [unattributedModel(usage)],
@@ -270,6 +273,7 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
   let assistantRequests = 0
   let compactionRequests = 0
   let compactionUsage = zeroBuckets()
+  let reliableDailySessions = 0
 
   for (const summary of summaries) {
     const row = sessionRow(summary)
@@ -279,6 +283,7 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
     assistantRequests += row.assistantRequests
     compactionRequests += row.compactionRequests
     compactionUsage = addBuckets(compactionUsage, row.compactionUsage)
+    if (row.dailyUsageReliable) reliableDailySessions += 1
     for (const day of row.days) {
       days.set(day.date, addBuckets(days.get(day.date) ?? zeroBuckets(), day.usage))
       if (row.dailyUsageReliable) {
@@ -317,11 +322,14 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
     operationalDays: [...operationalDays.entries()]
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
+    dailyCoverage: reliableDailySessions === 0
+      ? 'unavailable'
+      : reliableDailySessions === sessions.length ? 'complete' : 'partial',
   }
 }
 
 /** Return only detached aggregate buckets, route records, and UTC dates for AI usage analysis. */
-export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'assistantRequests' | 'compactionRequests' | 'compactionUsage' | 'models' | 'operationalDays'>): TokenUsageAnalysisInput {
+export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'assistantRequests' | 'compactionRequests' | 'compactionUsage' | 'models' | 'operationalDays' | 'dailyCoverage'>): TokenUsageAnalysisInput {
   return {
     usage: { ...data.usage },
     assistantRequests: data.assistantRequests,
@@ -334,7 +342,9 @@ export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'assistan
       compactionRequests: model.compactionRequests,
       usage: { ...model.usage },
     })),
-    days: data.operationalDays.map(day => ({ date: day.date, usage: { ...day.usage } })),
+    days: data.dailyCoverage === 'complete'
+      ? data.operationalDays.map(day => ({ date: day.date, usage: { ...day.usage } }))
+      : [],
   }
 }
 
@@ -537,37 +547,52 @@ function PeriodInsights({
 
 /** Render the persistent trailing-30-day budget setting and progress. */
 function BudgetPanel({
-  days,
   operationalDays,
+  dailyCoverage,
   snapshot,
   setBudget,
   t,
 }: {
-  days: readonly DailyTokenUsageRecord[]
   operationalDays: readonly DailyTokenUsageRecord[]
+  dailyCoverage: DashboardData['dailyCoverage']
   snapshot: TokenUsageBudgetSnapshot
   setBudget(value: number): Promise<number>
   t: TokenUsageSectionProps['t']
 }): ReactNode {
-  const insight = useMemo(() => periodInsight(days, 30), [days])
+  const insight = useMemo(() => periodInsight(operationalDays, 30), [operationalDays])
   const runRate = useMemo(() => runRateInsight(operationalDays), [operationalDays])
-  const runRateAvailable = operationalDays.length > 0
+  const runRateAvailable = dailyCoverage === 'complete'
   const used = totalTokens(insight.usage)
   const budget = snapshot.budget
   const enabled = budget > 0
   const durableValue = enabled ? String(budget) : ''
   const [draft, setDraft] = useState(durableValue)
+  const editGeneration = useRef(0)
+  const dirtyDraft = useRef(false)
   const ratio = enabled ? used / budget : 0
-  useEffect(() => { setDraft(durableValue) }, [durableValue, snapshot.status])
+  useEffect(() => {
+    if (!dirtyDraft.current) setDraft(durableValue)
+  }, [durableValue, snapshot.status])
   const save = (value: string): void => {
     const next = value.trim() === '' ? 0 : Number(value)
     if (!Number.isSafeInteger(next) || next < 0) {
+      dirtyDraft.current = false
       setDraft(durableValue)
       return
     }
+    const generation = editGeneration.current + 1
+    editGeneration.current = generation
     void setBudget(next).then(
-      saved => { setDraft(saved > 0 ? String(saved) : '') },
-      () => { setDraft(durableValue) },
+      (saved) => {
+        if (editGeneration.current !== generation) return
+        dirtyDraft.current = false
+        setDraft(saved > 0 ? String(saved) : '')
+      },
+      () => {
+        if (editGeneration.current !== generation) return
+        dirtyDraft.current = false
+        setDraft(durableValue)
+      },
     )
   }
   return (
@@ -588,7 +613,11 @@ function BudgetPanel({
             placeholder="0"
             aria-label={t('budgetInput')}
             disabled={snapshot.status !== 'ready'}
-            onChange={(event) => { setDraft(event.currentTarget.value) }}
+            onChange={(event) => {
+              editGeneration.current += 1
+              dirtyDraft.current = true
+              setDraft(event.currentTarget.value)
+            }}
             onBlur={(event) => { save(event.currentTarget.value) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') event.currentTarget.blur()
@@ -599,10 +628,11 @@ function BudgetPanel({
       <p className={css.insightNote}>{runRateAvailable ? t('budgetRunRate', {
         average: formatCompactTokens(Math.round(runRate.averageDailyTokens)),
         projected: formatCompactTokens(runRate.projectedThirtyDayTokens),
-      }) : t('dailyCoverageUnavailable')}</p>
+      }) : t(dailyCoverage === 'partial' ? 'dailyCoveragePartial' : 'dailyCoverageUnavailable')}</p>
       {snapshot.status !== 'ready' ? <p className={css.insightNote}>{t('budgetUnavailable')}</p>
         : !enabled ? <p className={css.insightNote}>{t('budgetDisabled')}</p>
-          : <>
+          : !runRateAvailable ? null
+            : <>
             <div className={css.budgetProgress}>
               <progress value={Math.min(used, budget)} max={budget} />
               <strong>{t('budgetProgress', { used: formatCompactTokens(used), budget: formatCompactTokens(budget), percent: Math.round(ratio * 100) })}</strong>
@@ -669,16 +699,18 @@ function EfficiencyPanel({
 /** Render complete-day burn rate and robust recent spike signals. */
 function OperationsPanel({
   days,
+  dailyCoverage,
   onSelectDate,
   t,
 }: {
   days: readonly DailyTokenUsageRecord[]
+  dailyCoverage: DashboardData['dailyCoverage']
   onSelectDate(date: string): void
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const runRate = useMemo(() => runRateInsight(days), [days])
   const anomaly = useMemo(() => dailyAnomalyInsight(days), [days])
-  const dailyCoverageAvailable = days.length > 0
+  const dailyCoverageAvailable = dailyCoverage === 'complete'
   return (
     <div className={css.insights}>
       <div className={css.blockHead}>
@@ -693,7 +725,7 @@ function OperationsPanel({
         <Metric label={t('anomalyRatio')} value={anomaly === undefined ? '—' : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(anomaly.ratio)}×`} />
         <Metric label={t('anomalyExcess')} value={anomaly === undefined ? '—' : anomaly.excessTokens} />
       </div>
-      {!dailyCoverageAvailable ? <p className={css.insightNote}>{t('dailyCoverageUnavailable')}</p>
+      {!dailyCoverageAvailable ? <p className={css.insightNote}>{t(dailyCoverage === 'partial' ? 'dailyCoveragePartial' : 'dailyCoverageUnavailable')}</p>
         : anomaly === undefined ? <p className={css.insightNote}>{t('anomalyInsufficient')}</p>
           : anomaly.status === 'normal' ? <p className={css.insightNote}>{t('anomalyNormal', {
           date: anomaly.date,
@@ -1087,11 +1119,11 @@ export function TokenUsageSection({
             compactionAttempts={data.compactionRequests}
             t={t}
           />
-          <OperationsPanel days={data.operationalDays} onSelectDate={(date) => {
+          <OperationsPanel days={data.operationalDays} dailyCoverage={data.dailyCoverage} onSelectDate={(date) => {
             setOperationalDrilldown(true)
             setSelectedDate(date)
           }} t={t} />
-          <BudgetPanel days={data.days} operationalDays={data.operationalDays} snapshot={budget} setBudget={setBudget} t={t} />
+          <BudgetPanel operationalDays={data.operationalDays} dailyCoverage={data.dailyCoverage} snapshot={budget} setBudget={setBudget} t={t} />
           <div className={css.pricingNotice}>
             <strong>{t('pricingTitle')}</strong>
             <p>{t('pricingIntro', {

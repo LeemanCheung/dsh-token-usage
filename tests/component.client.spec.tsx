@@ -265,10 +265,11 @@ describe('TokenUsageSection', () => {
         cacheWriteTokens: 10,
       },
     }])
+    expect(data.dailyCoverage).toBe('partial')
     expect(usageAnalysisInput(data)).toMatchObject({
       assistantRequests: 2,
       compactionRequests: 1,
-      days: data.operationalDays,
+      days: [],
     })
   })
 
@@ -277,6 +278,42 @@ describe('TokenUsageSection', () => {
 
     expect(screen.getAllByText('旧版回退记录没有真实逐日 bucket，因此不用于运行率、预测或异常信号。')).toHaveLength(2)
     expect(screen.getByText('7 日日均 Token').parentElement?.querySelector('strong')?.textContent).toBe('—')
+  })
+
+  it('suppresses operational signals when daily coverage is only partial', () => {
+    render(<TokenUsageSection {...props([first, legacy])} />)
+
+    expect(screen.getAllByText('部分历史记录缺少真实逐日 bucket；为避免低估，运行率、预测和异常信号暂不显示。')).toHaveLength(2)
+    expect(screen.getByText('7 日日均 Token').parentElement?.querySelector('strong')?.textContent).toBe('—')
+  })
+
+  it('retains count-only sessions and route attempts', () => {
+    const countOnly = summary({
+      id: 'session-count-only' as SessionSummary['id'],
+      displayTitle: '仅计数会话',
+      updatedAt: 3_000,
+      projectionValues: {
+        tokenUsageRecorder: {
+          assistantRequests: 1,
+          compactionRequests: 1,
+          compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          models: [{
+            provider: 'deepseek', model: 'deepseek-chat', assistantRequests: 1, compactionRequests: 1,
+            usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+          days: [],
+        },
+      },
+    })
+
+    expect(aggregateUsage([countOnly])).toMatchObject({
+      assistantRequests: 1,
+      compactionRequests: 1,
+      sessions: [{ title: '仅计数会话' }],
+      models: [{ provider: 'deepseek', model: 'deepseek-chat', assistantRequests: 1, compactionRequests: 1 }],
+      dailyCoverage: 'complete',
+    })
   })
 
   it('keeps distinct route pairs whose labels would collide', () => {
@@ -436,6 +473,24 @@ describe('TokenUsageSection', () => {
     fireEvent.blur(input)
 
     await waitFor(() => { expect(input.value).toBe('100') })
+  })
+
+  it('does not let an older budget save overwrite a newer draft', async () => {
+    let resolveSave: ((value: number) => void) | undefined
+    const setBudget = vi.fn(() => new Promise<number>((resolve) => { resolveSave = resolve }))
+    render(<TokenUsageSection
+      {...props([activity])}
+      useBudget={selector => selector({ status: 'ready', budget: 100 })}
+      setBudget={setBudget}
+    />)
+    const input = screen.getByLabelText('30 日预算（Token）') as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: '200' } })
+    fireEvent.blur(input)
+    fireEvent.change(input, { target: { value: '300' } })
+    resolveSave?.(200)
+
+    await waitFor(() => { expect(input.value).toBe('300') })
   })
 
   it('selects an integrated model and sends only aggregate Token records for AI optimization', async () => {

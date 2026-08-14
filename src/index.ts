@@ -171,16 +171,18 @@ function usageAnalysisRequest(payload: unknown): {
   const models = rawModels.map(modelUsageFrom)
   const days = rawDays.map(dailyUsageFrom)
   if (models.some(model => model === undefined) || days.some(day => day === undefined)) return undefined
+  const parsedModels = models as ModelTokenUsageRecord[]
+  const parsedDays = days as DailyTokenUsageRecord[]
   return {
     language,
     model,
     input: {
       usage,
-      assistantRequests: assistantRequests ?? models.reduce((sum, model) => sum + model!.assistantRequests, 0),
-      compactionRequests: compactionRequests ?? models.reduce((sum, model) => sum + model!.compactionRequests, 0),
+      assistantRequests: assistantRequests ?? parsedModels.reduce((sum, model) => sum + model.assistantRequests, 0),
+      compactionRequests: compactionRequests ?? parsedModels.reduce((sum, model) => sum + model.compactionRequests, 0),
       compactionUsage,
-      models: models as ModelTokenUsageRecord[],
-      days: days as DailyTokenUsageRecord[],
+      models: parsedModels,
+      days: parsedDays,
     },
   }
 }
@@ -284,9 +286,6 @@ function installRpc(ctx: Context): void {
         if (runtime?.llm === undefined) return rpcError('Usage analysis requires an available model service.')
         const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
         try {
-          const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger })
-          analysisSignal.throwIfAborted()
-          if (!isKnownModel(catalog.models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           return {
             ok: true,
             value: await analyzeTokenUsage({ llm: runtime.llm }, request.input, request.model, request.language, analysisSignal),
@@ -303,9 +302,6 @@ function installRpc(ctx: Context): void {
         if (runtime?.llm === undefined) return rpcError('Trajectory analysis requires an available model service.')
         const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
         try {
-          const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger })
-          analysisSignal.throwIfAborted()
-          if (!isKnownModel(catalog.models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           const live = ctx.sessions.get(request.sessionId)
           let events = live?.events
           if (events === undefined) {
