@@ -42,15 +42,25 @@ export interface TrajectoryMetrics {
   stepCount: number
   assistantRequests: number
   toolCalls: number
+  toolResults: number
   toolErrors: number
+  orphanToolCalls: number
+  orphanToolResults: number
+  averageToolLatencyMs: number
+  maxToolLatencyMs: number
   retries: number
   compactions: number
   approvalsAsked: number
   approvalsRejected: number
   subagents: number
+  modelSwitches: number
+  openTurns: number
+  openSteps: number
   durationMs: number
+  activeDurationMs: number
   eventsPerMinute: number
   tokensPerMinute: number
+  activeTokensPerMinute: number
   usage: TokenUsageBuckets
 }
 

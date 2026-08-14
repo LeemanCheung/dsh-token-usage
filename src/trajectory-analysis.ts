@@ -115,6 +115,30 @@ function completedReason(value: unknown): boolean {
   return isRecord(value) && value.kind === 'completed'
 }
 
+/** Extract the call id carried by the canonical DSH tool-result message source. */
+function toolResultCallId(data: Record<string, unknown>): string | undefined {
+  const message = isRecord(data.message) ? data.message : undefined
+  const source = message !== undefined && isRecord(message.source) ? message.source : undefined
+  return source?.kind === 'tool' && typeof source.callId === 'string' ? source.callId : undefined
+}
+
+interface RouteIdentity {
+  provider: string
+  model: string
+}
+
+/** Read model-route snapshots without retaining the surrounding request header. */
+function routeOf(type: string, data: Record<string, unknown>): RouteIdentity | undefined {
+  const candidate = type === 'request/header'
+    ? (isRecord(data.header) && isRecord(data.header.config) ? data.header.config : undefined)
+    : type === 'request/context' ? data : undefined
+  return candidate !== undefined
+    && typeof candidate.provider === 'string'
+    && typeof candidate.model === 'string'
+    ? { provider: candidate.provider, model: candidate.model }
+    : undefined
+}
+
 /** Convert one event to a compact trajectory row; raw streaming chunks are summarized separately. */
 function eventRow(event: SessionEvent): string | undefined {
   if (String(event.type) === 'assistant/chunk') return undefined
@@ -158,7 +182,10 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
   let stepCount = 0
   let assistantRequests = 0
   let toolCalls = 0
+  let toolResults = 0
   let toolErrors = 0
+  let modelSwitches = 0
+  let activeDurationMs = 0
   let retries = 0
   let compactions = 0
   let approvalsAsked = 0
@@ -167,6 +194,13 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
   let omittedChunkEvents = 0
   const rows: string[] = []
   const assistantSamples = new Map<string, TokenUsageBuckets>()
+  const openTurnStarts = new Map<number, number>()
+  const openStepKeys = new Set<string>()
+  const toolCallIds = new Set<string>()
+  const toolResultIds = new Set<string>()
+  const toolCallTimes = new Map<string, number>()
+  const toolLatencies: number[] = []
+  let previousRoute: RouteIdentity | undefined
   const assistantKey = (data: Record<string, unknown>): string | undefined =>
     typeof data.turn === 'number' && typeof data.step === 'number' ? `${data.turn}\u0000${data.step}` : undefined
   const applyAssistantUsage = (data: Record<string, unknown>, rawUsage: unknown): boolean => {
@@ -186,13 +220,37 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
     const data: Record<string, unknown> = isRecord(event.data as unknown)
     ? event.data as Record<string, unknown>
     : {}
+    const route = routeOf(type, data)
+    if (route !== undefined) {
+      if (previousRoute !== undefined
+        && (route.provider !== previousRoute.provider || route.model !== previousRoute.model)) modelSwitches += 1
+      previousRoute = route
+    }
     switch (type) {
-      case 'turn/start': turnCount += 1; break
+      case 'turn/start':
+        turnCount += 1
+        if (typeof data.turn === 'number') openTurnStarts.set(data.turn, event.time)
+        break
       case 'turn/end':
         if (completedReason(data.reason)) completedTurns += 1
         else failedTurns += 1
+        if (typeof data.turn === 'number') {
+          const startedAt = openTurnStarts.get(data.turn)
+          if (startedAt !== undefined) activeDurationMs += Math.max(0, event.time - startedAt)
+          openTurnStarts.delete(data.turn)
+        }
         break
-      case 'step/start': stepCount += 1; break
+      case 'step/start': {
+        stepCount += 1
+        const key = assistantKey(data)
+        if (key !== undefined) openStepKeys.add(key)
+        break
+      }
+      case 'step/end': {
+        const key = assistantKey(data)
+        if (key !== undefined) openStepKeys.delete(key)
+        break
+      }
       case 'assistant/message': {
         if (!applyAssistantUsage(data, data.usage)) {
           const key = assistantKey(data)
@@ -209,8 +267,25 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
         if (chunk?.type === 'usage') applyAssistantUsage(data, chunk.usage)
         break
       }
-      case 'tool/call': toolCalls += 1; break
-      case 'tool/result': if (data.error !== undefined) toolErrors += 1; break
+      case 'tool/call': {
+        toolCalls += 1
+        if (typeof data.callId === 'string') {
+          toolCallIds.add(data.callId)
+          if (!toolCallTimes.has(data.callId)) toolCallTimes.set(data.callId, event.time)
+        }
+        break
+      }
+      case 'tool/result': {
+        toolResults += 1
+        if (data.error !== undefined) toolErrors += 1
+        const callId = toolResultCallId(data)
+        if (callId !== undefined) {
+          toolResultIds.add(callId)
+          const startedAt = toolCallTimes.get(callId)
+          if (startedAt !== undefined) toolLatencies.push(Math.max(0, event.time - startedAt))
+        }
+        break
+      }
       case 'llm/retry': {
         retries += 1
         const key = assistantKey(data)
@@ -238,8 +313,18 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
   const firstTime = events[0]?.time
   const lastTime = events.at(-1)?.time
   const durationMs = firstTime === undefined || lastTime === undefined ? 0 : Math.max(0, lastTime - firstTime)
+  if (lastTime !== undefined) {
+    for (const startedAt of openTurnStarts.values()) activeDurationMs += Math.max(0, lastTime - startedAt)
+  }
   const totalTokens = usage.uncachedInputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
   const minutes = durationMs / 60_000
+  const activeMinutes = activeDurationMs / 60_000
+  const orphanToolCalls = [...toolCallIds].filter(callId => !toolResultIds.has(callId)).length
+  const orphanToolResults = [...toolResultIds].filter(callId => !toolCallIds.has(callId)).length
+  const averageToolLatencyMs = toolLatencies.length === 0
+    ? 0
+    : Number((toolLatencies.reduce((sum, value) => sum + value, 0) / toolLatencies.length).toFixed(2))
+  const maxToolLatencyMs = toolLatencies.length === 0 ? 0 : Math.max(...toolLatencies)
   const metrics: TrajectoryMetrics = {
     eventCount: events.length,
     includedEventCount: rows.length,
@@ -250,15 +335,25 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
     stepCount,
     assistantRequests,
     toolCalls,
+    toolResults,
     toolErrors,
+    orphanToolCalls,
+    orphanToolResults,
+    averageToolLatencyMs,
+    maxToolLatencyMs,
     retries,
     compactions,
     approvalsAsked,
     approvalsRejected,
     subagents,
+    modelSwitches,
+    openTurns: openTurnStarts.size,
+    openSteps: openStepKeys.size,
     durationMs,
+    activeDurationMs,
     eventsPerMinute: minutes > 0 ? Number((events.length / minutes).toFixed(2)) : 0,
     tokensPerMinute: minutes > 0 ? Number((totalTokens / minutes).toFixed(2)) : 0,
+    activeTokensPerMinute: activeMinutes > 0 ? Number((totalTokens / activeMinutes).toFixed(2)) : 0,
     usage,
   }
 

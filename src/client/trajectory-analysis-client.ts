@@ -25,17 +25,26 @@ function bucketsOf(value: unknown): TokenUsageBuckets | undefined {
 /** Decode deterministic analysis metrics returned by the Host. */
 function metricsOf(value: unknown): TrajectoryMetrics | undefined {
   if (!isRecord(value)) return undefined
-  const numericKeys = [
+  const baseNumericKeys = [
     'eventCount', 'includedEventCount', 'omittedChunkEvents', 'turnCount', 'completedTurns', 'failedTurns',
     'stepCount', 'assistantRequests', 'toolCalls', 'toolErrors', 'retries', 'compactions', 'approvalsAsked',
     'approvalsRejected', 'subagents', 'durationMs', 'eventsPerMinute', 'tokensPerMinute',
   ] as const
-  if (!numericKeys.every(key => typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0)) {
-    return undefined
-  }
+  const extendedNumericKeys = [
+    'toolResults', 'orphanToolCalls', 'orphanToolResults', 'averageToolLatencyMs', 'maxToolLatencyMs',
+    'modelSwitches', 'openTurns', 'openSteps', 'activeDurationMs', 'activeTokensPerMinute',
+  ] as const
+  const validNumber = (candidate: unknown): candidate is number =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0
+  if (!baseNumericKeys.every(key => validNumber(value[key]))) return undefined
+  if (!extendedNumericKeys.every(key => value[key] === undefined || validNumber(value[key]))) return undefined
   const usage = bucketsOf(value.usage)
   if (usage === undefined) return undefined
-  return { ...Object.fromEntries(numericKeys.map(key => [key, value[key]])), usage } as unknown as TrajectoryMetrics
+  return {
+    ...Object.fromEntries(baseNumericKeys.map(key => [key, value[key]])),
+    ...Object.fromEntries(extendedNumericKeys.map(key => [key, value[key] ?? 0])),
+    usage,
+  } as unknown as TrajectoryMetrics
 }
 
 /** Decode one complete versioned trajectory report. */

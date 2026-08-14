@@ -22,7 +22,12 @@ const events = [
     usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
   }),
   event(4, 15_000, 'tool/call', { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{"apiKey":"secret"}' }),
-  event(5, 30_000, 'tool/result', { turn: 1, step: 1, error: { name: 'Error', code: 'FAILED' } }),
+  event(5, 30_000, 'tool/result', {
+    turn: 1,
+    step: 1,
+    message: { role: 'user', source: { kind: 'tool', callId: 'call-1' }, content: [] },
+    error: { name: 'Error', code: 'FAILED' },
+  }),
   event(6, 35_000, 'llm/retry', { turn: 1, step: 1, retry: 1 }),
   event(7, 40_000, 'approval/asked', { id: 'approval-1', toolName: 'bash' }),
   event(8, 45_000, 'approval/decided', { id: 'approval-1', outcome: 'rejected' }),
@@ -44,19 +49,58 @@ describe('trajectory analysis', () => {
       stepCount: 1,
       assistantRequests: 1,
       toolCalls: 1,
+      toolResults: 1,
       toolErrors: 1,
+      orphanToolCalls: 0,
+      orphanToolResults: 0,
+      averageToolLatencyMs: 15_000,
+      maxToolLatencyMs: 15_000,
       retries: 1,
       approvalsAsked: 1,
       approvalsRejected: 1,
       subagents: 1,
+      modelSwitches: 0,
+      openTurns: 0,
+      openSteps: 1,
       durationMs: 60_000,
+      activeDurationMs: 60_000,
       eventsPerMinute: 11,
       tokensPerMinute: 155,
+      activeTokensPerMinute: 155,
       usage: { uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
     })
     expect(prepared.timeline).not.toContain('assistant/chunk')
     expect(prepared.timeline).toContain('<redacted>')
     expect(prepared.truncated).toBe(false)
+  })
+
+  it('detects route switches, orphaned tools, and unfinished lifecycle spans', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'request/context', { provider: 'first', model: 'model-a' }),
+      event(1, 1_000, 'turn/start', { turn: 3 }),
+      event(2, 2_000, 'step/start', { turn: 3, step: 1 }),
+      event(3, 3_000, 'tool/call', { turn: 3, step: 1, callId: 'missing-result', name: 'read', arguments: '{}' }),
+      event(4, 4_000, 'request/header', { header: { config: { provider: 'second', model: 'model-b' } } }),
+      event(5, 5_000, 'tool/result', {
+        turn: 3,
+        step: 1,
+        message: { role: 'user', source: { kind: 'tool', callId: 'missing-call' }, content: [] },
+      }),
+      event(6, 61_000, 'session/checkpoint', {}),
+    ])
+
+    expect(prepared.metrics).toMatchObject({
+      modelSwitches: 1,
+      toolCalls: 1,
+      toolResults: 1,
+      orphanToolCalls: 1,
+      orphanToolResults: 1,
+      averageToolLatencyMs: 0,
+      maxToolLatencyMs: 0,
+      openTurns: 1,
+      openSteps: 1,
+      activeDurationMs: 60_000,
+    })
   })
 
   it('replaces streamed usage per attempt and retains failed retry costs', () => {
