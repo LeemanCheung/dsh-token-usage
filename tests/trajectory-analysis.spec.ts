@@ -191,6 +191,16 @@ describe('trajectory analysis', () => {
     })
   })
 
+  it('keeps the complete truncated timeline within the declared model-input budget', () => {
+    const prepared = prepareTrajectory(Array.from({ length: 4_000 }, (_, index) =>
+      event(index, index, 'approval/asked', { id: `private-${index}`, toolName: 'private-tool' })))
+
+    expect(prepared.truncated).toBe(true)
+    expect(prepared.timeline.length).toBeLessThanOrEqual(96_000)
+    expect(prepared.timeline).toContain('trajectory/truncated')
+    expect(prepared.timeline).not.toContain('private-')
+  })
+
   it('produces identical model evidence when only private payload content changes', () => {
     const first = prepareTrajectory([
       event(0, 0, 'user/message', { content: 'person-a@example.com', source: { name: 'team-a' } }),

@@ -40,6 +40,7 @@ function spanOf(value: unknown): TrajectoryUsageSpan | undefined {
     || (value.kind !== 'model' && value.kind !== 'compaction')
     || typeof value.seq !== 'number'
     || !Number.isSafeInteger(value.seq)
+    || value.seq < 0
     || typeof value.provider !== 'string'
     || typeof value.model !== 'string'
     || !['open', 'completed', 'retried'].includes(String(value.status))

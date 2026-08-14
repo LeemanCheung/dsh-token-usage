@@ -445,7 +445,7 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
   let headChars = 0
   let tailChars = 0
   const headBudget = Math.floor(MAX_TRAJECTORY_CHARS * 0.65)
-  const tailBudget = MAX_TRAJECTORY_CHARS - headBudget
+  const tailBudget = MAX_TRAJECTORY_CHARS - headBudget - 128
   for (const row of rows) {
     if (headChars + row.length + 1 > headBudget) break
     head.push(row)
