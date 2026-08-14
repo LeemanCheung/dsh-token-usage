@@ -78,6 +78,12 @@ describe('trajectory analysis client decoder', () => {
     })
   })
 
+  it('rejects malformed reliability metrics at the wire boundary', () => {
+    const value = report()
+    value.metrics.orphanToolCalls = -1
+    expect(trajectoryAnalysisOf(value)).toBeUndefined()
+  })
+
   it('rejects reports that omit reconciliation evidence', () => {
     const value = report()
     delete (value.metrics as Partial<typeof value.metrics>).reconciliation
