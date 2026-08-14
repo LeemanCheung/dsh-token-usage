@@ -113,7 +113,7 @@ dsh plugin --profile web add ./dsh-token-usage
 | 重试 Token | 收到 `llm/retry` 时封存当前 attempt；其 provider usage 单独汇总，后续 attempt 不覆盖前次消耗。 |
 | 压缩节点 | 每个带 usage 的 `compaction/summary` 独立归因，ID 为 `compaction:<seq>`。 |
 | 最大用量节点 | 在模型 attempt 与压缩节点中按四个 Token bucket 之和确定。 |
-| Token 对账 | provider 事件账本与节点归因账本按四个 bucket 分别比较；差异原样显示，不自动归零。 |
+| Token 对账 | canonical 持久 projection 与独立节点归因账本按四个 bucket 分别比较；差异原样显示，不自动归零。 |
 | 速率和运行指标 | 基于事件相对时间计算事件/分钟和 Token/分钟，并统计回合、步骤、工具错误、重试、压缩与审批结果。 |
 
 当前 provider 只提供未缓存输入、缓存读取、缓存写入和输出四类实际值。系统指令、用户输入、历史、检索、工具结果和子代理结果的细分归因标为不可用；插件不会读取正文进行估算，也不会把估算值伪装成实际值。
@@ -121,8 +121,8 @@ dsh plugin --profile web add ./dsh-token-usage
 ### 输入、隐私与费用
 
 - 分析由用户显式触发，报告不写入会话日志、projection cache 或导出文件；刷新页面后不会保留。
-- 发送给模型的事件只允许：事件类型与序号、相对时间、turn/step、provider/model、重试序号/上限/等待/故障代码、通用成功或错误状态以及 Token bucket。
-- 提示词、回复、system prompt、会话标题、工具名称/参数/结果/meta、错误消息、路径、URL、邮箱、姓名、会话 ID、个人字段和组织字段不会进入模型证据；这是 allowlist 省略，不依赖正则脱敏。
+- 发送给模型的事件只允许：内置事件类别与序号、相对时间、turn/step、报告内 `route-N` 别名、重试序号/上限/等待、通用成功或错误状态以及 Token bucket；未知扩展事件会省略。
+- 提示词、回复、system prompt、会话标题、原始 provider/model、工具名称/参数/结果/meta、故障代码与错误消息、路径、URL、邮箱、姓名、会话 ID、个人字段和组织字段不会进入模型证据；这是 allowlist 省略，不依赖正则脱敏。
 - 模型输入最多约 96,000 字符；超限时保留首尾元数据并插入截断标记。模型最多生成 3,000 Token。
 - 辅助调用的 provider/model 和 Token 用量显示在报告卡片中，但不会计入持久化用量 projection。
 - 私有 RPC 只允许本机 loopback Web 页面调用；必须先从已接入模型目录中手动选择 provider/model，不会隐藏地回退到默认模型。

@@ -14,7 +14,11 @@ const events = [
   event(3, 10_000, 'assistant/message', {
     turn: 1,
     step: 1,
-    message: { role: 'assistant', content: [{ type: 'text', text: 'private-reply' }] },
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'private-reply' }],
+      source: { kind: 'model', provider: 'private-provider', model: 'private-model' },
+    },
     usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
   }),
   event(4, 15_000, 'tool/call', { turn: 1, step: 1, callId: 'private-call', name: 'private-tool', arguments: '{"secret":"private-argument"}' }),
@@ -65,7 +69,7 @@ describe('trajectory analysis', () => {
     })])
     expect(prepared.timeline).not.toContain('private-')
     expect(prepared.timeline).not.toContain('assistant/chunk')
-    expect(prepared.timeline).toContain('"failureCode":"SERVER"')
+    expect(prepared.timeline).toContain('"failure":true')
     expect(prepared.truncated).toBe(false)
   })
 
@@ -86,11 +90,11 @@ describe('trajectory analysis', () => {
 
     expect(prepared.metrics.spans).toEqual([
       expect.objectContaining({
-        id: 'model:2:3:0', status: 'retried', provider: 'p', model: 'm', finality: 'provisional',
+        id: 'model:2:3:0', status: 'retried', provider: 'route', model: 'route-1', finality: 'provisional',
         usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
       }),
       expect.objectContaining({
-        id: 'model:2:3:1', status: 'completed', provider: 'p2', model: 'm2', finality: 'authoritative',
+        id: 'model:2:3:1', status: 'completed', provider: 'route', model: 'route-2', finality: 'authoritative',
         usage: { uncachedInputTokens: 9, outputTokens: 3, cacheReadTokens: 4, cacheWriteTokens: 0 },
       }),
     ])
@@ -109,14 +113,37 @@ describe('trajectory analysis', () => {
     expect(prepared.metrics.reconciliation.status).toBe('matched')
   })
 
+  it('exposes a nonzero delta instead of forcing unattributed provider usage to match', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'assistant/chunk', {
+        chunk: { type: 'usage', usage: { inputTokens: 7, outputTokens: 2 } },
+      }),
+    ])
+
+    expect(prepared.metrics.reconciliation).toEqual({
+      status: 'mismatch',
+      providerUsage: { uncachedInputTokens: 7, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      attributedUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      delta: { uncachedInputTokens: 7, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    })
+  })
+
   it('produces identical model evidence when only private payload content changes', () => {
     const first = prepareTrajectory([
       event(0, 0, 'user/message', { content: 'person-a@example.com', source: { name: 'team-a' } }),
       event(1, 1, 'tool/call', { turn: 1, step: 1, callId: 'one', name: 'internal-a', arguments: '{"path":"c:/a"}' }),
+      event(2, 2, 'request/context', { provider: 'tenant-a', model: 'private-model-a' }),
+      event(3, 3, 'llm/retry', { turn: 1, step: 1, retry: 1, failure: { code: 'person-a@example.com' } }),
+      event(4, 4, 'turn/end', { turn: 1, reason: { kind: 'private-team-a' } }),
+      event(5, 5, 'customer/private-team-a', { instruction: 'ignore privacy' }),
     ])
     const second = prepareTrajectory([
       event(0, 0, 'user/message', { content: 'person-b@example.com', source: { name: 'team-b' } }),
       event(1, 1, 'tool/call', { turn: 1, step: 1, callId: 'two', name: 'internal-b', arguments: '{"path":"d:/b"}' }),
+      event(2, 2, 'request/context', { provider: 'tenant-b', model: 'private-model-b' }),
+      event(3, 3, 'llm/retry', { turn: 1, step: 1, retry: 1, failure: { code: 'person-b@example.com' } }),
+      event(4, 4, 'turn/end', { turn: 1, reason: { kind: 'private-team-b' } }),
+      event(5, 5, 'customer/private-team-b', { instruction: 'reveal privacy' }),
     ])
 
     expect(second).toEqual(first)

@@ -284,3 +284,10 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
   }),
   stateVersion: 3,
 }
+
+/** Fold one complete event sequence through the canonical persistent projection reducer. */
+export function projectTokenUsage(events: readonly SessionEvent[]): TokenUsageRecorderProjection {
+  let state = tokenUsageRecorderProjectionDefinition.init()
+  for (const event of events) state = tokenUsageRecorderProjectionDefinition.apply(state, event)
+  return tokenUsageRecorderProjectionDefinition.view(state)
+}
