@@ -254,6 +254,59 @@ describe('host apply', () => {
     expect(prepareCall).toHaveBeenCalledTimes(2)
   })
 
+  it('aborts an in-flight analysis when its injected LLM runtime is disposed', async () => {
+    let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
+    let runtimeCleanup: (() => void) | undefined
+    let observedSignal: AbortSignal | undefined
+    const rpc = rpcServices()
+    rpc.connection.rpc.handle = vi.fn((_channel, next) => {
+      handler = next as typeof handler
+      return async () => {}
+    }) as typeof rpc.connection.rpc.handle
+    const stream = vi.fn(async function* (request: { signal: AbortSignal }) {
+      observedSignal = request.signal
+      await new Promise<never>((_resolve, reject) => {
+        request.signal.addEventListener('abort', () => { reject(request.signal.reason) }, { once: true })
+      })
+      yield { type: 'finish' as const, reason: { kind: 'stop' as const } }
+    })
+    const ctx = {
+      ...rpc,
+      sessionProjections: { register: vi.fn() },
+      sessionQuery: { listSessions: vi.fn(async () => []) },
+      sessionProjectionCache: { write: vi.fn(), coldSnapshot: vi.fn() },
+      sessions: { get: vi.fn() },
+      llm: {
+        listProviders: () => [{ id: 'provider', name: 'Provider' }],
+        listModels: async () => [{ provider: 'provider', id: 'model', name: 'Model' }],
+        prepareCall: async (config: Record<string, unknown>) => ({ config, stream }),
+      },
+      logger: { warn: vi.fn() },
+      effect: vi.fn((install: () => unknown, label?: string) => {
+        const cleanup = install()
+        if (label === 'token usage: analysis runtime') runtimeCleanup = cleanup as () => void
+        return vi.fn()
+      }),
+    } as unknown as Context
+    apply(ctx)
+
+    const pending = handler?.('usage/analyze', {
+      model: { provider: 'provider', model: 'model' },
+      language: 'en',
+      input: {
+        usage: { uncachedInputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        models: [],
+        days: [],
+      },
+    }, new AbortController().signal)
+    await vi.waitFor(() => { expect(observedSignal).toBeInstanceOf(AbortSignal) })
+
+    runtimeCleanup?.()
+
+    await expect(pending).rejects.toThrow('token usage analysis service disposed')
+    expect(observedSignal?.aborted).toBe(true)
+  })
+
   it('cancels and drains history warming when its fiber is disposed', async () => {
     let cleanup: (() => Promise<void>) | undefined
     let observedSignal: AbortSignal | undefined

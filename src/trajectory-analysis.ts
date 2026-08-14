@@ -364,6 +364,7 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
           const key = stepKey(data.turn, data.step)
           const current = attempts.get(key) ?? 0
           const id = `model:${data.turn}:${data.step}:${current}`
+          assistantRequestIds.add(id)
           const previous = spans.get(id)
           if (previous !== undefined) spans.set(id, { ...previous, status: 'retried' })
           const retry = typeof data.retry === 'number' && Number.isInteger(data.retry) ? data.retry : current + 1
@@ -583,7 +584,7 @@ export async function analyzeTrajectory(
   if (report.length === 0) throw new Error('Trajectory analysis model returned no report text.')
   const auxiliaryUsage = analysisUsage(assembler.usage)
   return {
-    schema: 'dsh-token-usage/trajectory-analysis-v1',
+    schema: 'dsh-token-usage/trajectory-analysis-v2',
     sessionId: String(sessionId),
     generatedAt: new Date().toISOString(),
     model: { provider: preparedCall.config.provider, model: preparedCall.config.model },

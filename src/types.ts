@@ -59,7 +59,7 @@ export interface TrajectoryUsageSpan {
 
 /** Comparison between the provider event ledger and attributed usage spans. */
 export interface TrajectoryReconciliation {
-  status: 'matched' | 'mismatch'
+  status: 'matched' | 'mismatch' | 'unavailable'
   providerUsage: TokenUsageBuckets
   attributedUsage: TokenUsageBuckets
   delta: SignedTokenUsageBuckets
@@ -175,7 +175,7 @@ export interface TokenUsageAnalysis {
 
 /** One ephemeral configured-model review of a bounded DSH session trajectory. */
 export interface TrajectoryAnalysis {
-  schema: 'dsh-token-usage/trajectory-analysis-v1'
+  schema: 'dsh-token-usage/trajectory-analysis-v1' | 'dsh-token-usage/trajectory-analysis-v2'
   sessionId: string
   generatedAt: string
   model: { provider: string; model: string }

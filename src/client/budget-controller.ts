@@ -69,32 +69,35 @@ export class TokenUsageBudgetController {
     }
   }
 
-  /** Persist one whole-token rolling budget. Writes are serialized so failures retain the latest durable value. */
-  setBudget(rolling30DayBudget: number): Promise<void> {
-    if (!Number.isSafeInteger(rolling30DayBudget) || rolling30DayBudget < 0) return Promise.resolve()
+  /** Persist one whole-token rolling budget and return the value that remains durable. */
+  setBudget(rolling30DayBudget: number): Promise<number> {
+    if (!Number.isSafeInteger(rolling30DayBudget) || rolling30DayBudget < 0) {
+      return Promise.resolve(this.store.getSnapshot().budget)
+    }
     const operation = this.writeQueue.then(() => this.writeBudget(rolling30DayBudget))
-    this.writeQueue = operation.catch(() => {})
+    this.writeQueue = operation.then(() => undefined, () => undefined)
     return operation
   }
 
   /** Execute one queued budget write against the latest published durable value. */
-  private async writeBudget(rolling30DayBudget: number): Promise<void> {
-    if (this.disposed) return
+  private async writeBudget(rolling30DayBudget: number): Promise<number> {
+    if (this.disposed) return this.store.getSnapshot().budget
     const previous = this.store.getSnapshot()
     const fallback = previous.status === 'ready' ? previous : { status: 'unavailable' as const, budget: 0 }
     const generation = ++this.generation
     if (!this.connection.isLoopback) {
       this.publish(generation, fallback)
-      return
+      return fallback.budget
     }
     try {
       const result = await this.connection.rpc.call(TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT.budgetWrite, { rolling30DayBudget })
       const settings = result.ok ? settingsOf(result.value) : undefined
-      this.publish(generation, settings === undefined
-        ? fallback
-        : { status: 'ready', budget: settings.rolling30DayBudget })
+      const next = settings === undefined ? fallback : { status: 'ready' as const, budget: settings.rolling30DayBudget }
+      this.publish(generation, next)
+      return next.budget
     } catch (_budgetWriteFailure) {
       this.publish(generation, fallback)
+      return fallback.budget
     }
   }
 

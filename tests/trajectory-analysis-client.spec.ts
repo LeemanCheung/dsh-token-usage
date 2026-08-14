@@ -5,7 +5,7 @@ const zero = { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cach
 
 function report() {
   return {
-    schema: 'dsh-token-usage/trajectory-analysis-v1',
+    schema: 'dsh-token-usage/trajectory-analysis-v2',
     sessionId: 'session-a',
     generatedAt: '2026-08-15T00:00:00.000Z',
     model: { provider: 'provider', model: 'model' },
@@ -75,6 +75,25 @@ describe('trajectory analysis client decoder', () => {
       largestSpanId: 'model:1:1:0',
       spans: [expect.objectContaining({ id: 'model:1:1:0', valueKind: 'actual' })],
       reconciliation: { status: 'matched', delta: zero },
+    })
+  })
+
+  it('decodes an older v1 report with explicit unavailable reconciliation', () => {
+    const legacy = report() as unknown as Record<string, unknown>
+    legacy.schema = 'dsh-token-usage/trajectory-analysis-v1'
+    const metrics = legacy.metrics as Record<string, unknown>
+    for (const key of [
+      'omittedContentEvents', 'toolResults', 'orphanToolCalls', 'orphanToolResults', 'averageToolLatencyMs',
+      'maxToolLatencyMs', 'modelSwitches', 'openTurns', 'openSteps', 'activeDurationMs', 'activeTokensPerMinute',
+      'retryUsage', 'spans', 'largestSpanId', 'reconciliation',
+    ]) delete metrics[key]
+
+    expect(trajectoryAnalysisOf(legacy)?.metrics).toMatchObject({
+      omittedContentEvents: 0,
+      toolResults: 0,
+      retryUsage: zero,
+      spans: [],
+      reconciliation: { status: 'unavailable', providerUsage: { ...zero, uncachedInputTokens: 10 } },
     })
   })
 

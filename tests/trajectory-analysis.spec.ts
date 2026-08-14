@@ -162,6 +162,22 @@ describe('trajectory analysis', () => {
     expect(prepared.metrics.reconciliation.status).toBe('matched')
   })
 
+  it('counts a failed pre-usage attempt before the successful retry', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'llm/retry', { turn: 1, step: 1, retry: 1, failure: { code: 'TIMEOUT' } }),
+      event(1, 1, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: { role: 'assistant', content: [], source: { kind: 'model', provider: 'p', model: 'm' } },
+        usage: { inputTokens: 5, outputTokens: 1 },
+      }),
+    ])
+
+    expect(prepared.metrics.retries).toBe(1)
+    expect(prepared.metrics.assistantRequests).toBe(2)
+    expect(prepared.metrics.spans).toHaveLength(1)
+  })
+
   it('counts a usage-less assistant response without fabricating a Token span', () => {
     const prepared = prepareTrajectory([
       event(0, 0, 'assistant/message', {
@@ -264,7 +280,7 @@ describe('trajectory analysis', () => {
     expect(modelEvidence).not.toContain('private-session-id')
     expect(modelEvidence).not.toContain('private-')
     expect(result).toMatchObject({
-      schema: 'dsh-token-usage/trajectory-analysis-v1',
+      schema: 'dsh-token-usage/trajectory-analysis-v2',
       sessionId: 'private-session-id',
       model: { provider: 'configured', model: 'audit-model' },
       analysisUsage: { uncachedInputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },

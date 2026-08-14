@@ -218,6 +218,20 @@ function isKnownModel(models: readonly TokenUsageAnalysisModel[], selection: Tok
 /** Expose persistent preferences and explicit configured-model trajectory analysis to the local Web client. */
 function installRpc(ctx: Context): void {
   const budget = ctx.settings.register(BUDGET_NAMESPACE, BudgetSettingsSchema)
+  let analysisRuntime: { llm: Context['llm']; signal: AbortSignal } | undefined
+  ctx.plugin({
+    name: 'token-usage-analysis-runtime',
+    inject: ['llm'],
+    apply(analysisCtx: Context) {
+      const lifecycle = new AbortController()
+      const current = { llm: analysisCtx.llm, signal: lifecycle.signal }
+      analysisRuntime = current
+      analysisCtx.effect(() => () => {
+        lifecycle.abort(new Error('token usage analysis service disposed'))
+        if (analysisRuntime === current) analysisRuntime = undefined
+      }, 'token usage: analysis runtime')
+    },
+  })
   ctx.effect(() => {
     const lifecycle = new AbortController()
     const dispose = ctx.connection.rpc.handle(TOKEN_USAGE_RPC_CHANNEL, async (endpoint, payload, signal) => {
@@ -238,9 +252,11 @@ function installRpc(ctx: Context): void {
         return { ok: true, value: budget.get() }
       }
       case TOKEN_USAGE_RPC_ENDPOINT.analysisModels: {
-        const llm = ctx.get('llm')
-        if (llm === undefined) return rpcError('Analysis requires an available model service.')
-        const catalog = await analysisModels({ llm, logger: ctx.logger })
+        const runtime = analysisRuntime
+        if (runtime?.llm === undefined) return rpcError('Analysis requires an available model service.')
+        const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
+        const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger })
+        analysisSignal.throwIfAborted()
         const defaultSelection = ctx.get('agentDefaultModel')?.currentSelection()
         return {
           ok: true,
@@ -256,24 +272,32 @@ function installRpc(ctx: Context): void {
       case TOKEN_USAGE_RPC_ENDPOINT.usageAnalyze: {
         const request = usageAnalysisRequest(payload)
         if (request === undefined) return rpcError('A valid aggregate Token usage payload, selected model, and language are required.')
+        const runtime = analysisRuntime
+        if (runtime?.llm === undefined) return rpcError('Usage analysis requires an available model service.')
+        const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
         try {
-          const llm = ctx.get('llm')
-          if (llm === undefined) return rpcError('Usage analysis requires an available model service.')
+          const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger })
+          analysisSignal.throwIfAborted()
+          if (!isKnownModel(catalog.models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           return {
             ok: true,
-            value: await analyzeTokenUsage({ llm }, request.input, request.model, request.language, operationSignal),
+            value: await analyzeTokenUsage({ llm: runtime.llm }, request.input, request.model, request.language, analysisSignal),
           }
         } catch (error) {
-          if (operationSignal.aborted) throw error
+          if (analysisSignal.aborted) throw error
           return rpcError(error instanceof Error ? error.message : String(error))
         }
       }
       case TOKEN_USAGE_RPC_ENDPOINT.trajectoryAnalyze: {
         const request = trajectoryAnalysisRequest(payload)
         if (request === undefined) return rpcError('A valid session id, selected model, and language are required.')
+        const runtime = analysisRuntime
+        if (runtime?.llm === undefined) return rpcError('Trajectory analysis requires an available model service.')
+        const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
         try {
-          const llm = ctx.get('llm')
-          if (llm === undefined) return rpcError('Trajectory analysis requires an available model service.')
+          const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger })
+          analysisSignal.throwIfAborted()
+          if (!isKnownModel(catalog.models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           const live = ctx.sessions.get(request.sessionId)
           let events = live?.events
           if (events === undefined) {
@@ -281,22 +305,22 @@ function installRpc(ctx: Context): void {
             if (persistence === undefined) {
               return rpcError('Trajectory analysis cannot read cold sessions because persistence is unavailable.')
             }
-            events = (await persistence.inspect(request.sessionId, operationSignal)).events
+            events = (await persistence.inspect(request.sessionId, analysisSignal)).events
           }
           if (events.length === 0) return rpcError('This session has no trajectory events to analyze.')
           return {
             ok: true,
             value: await analyzeTrajectory(
-              { llm },
+              { llm: runtime.llm },
               request.sessionId,
               events,
               request.model,
               request.language,
-              operationSignal,
+              analysisSignal,
             ),
           }
         } catch (error) {
-          if (operationSignal.aborted) throw error
+          if (analysisSignal.aborted) throw error
           return rpcError(error instanceof Error ? error.message : String(error))
         }
       }

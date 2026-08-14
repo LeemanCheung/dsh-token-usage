@@ -88,28 +88,53 @@ function reconciliationOf(value: unknown): TrajectoryReconciliation | undefined 
   }
 }
 
-/** Decode deterministic analysis metrics returned by the Host. */
-function metricsOf(value: unknown): TrajectoryMetrics | undefined {
+const BASE_METRIC_KEYS = [
+  'eventCount', 'includedEventCount', 'omittedChunkEvents', 'turnCount', 'completedTurns', 'failedTurns',
+  'stepCount', 'assistantRequests', 'toolCalls', 'toolErrors', 'retries', 'compactions', 'approvalsAsked',
+  'approvalsRejected', 'subagents', 'durationMs', 'eventsPerMinute', 'tokensPerMinute',
+] as const
+const ADDITIVE_METRIC_KEYS = [
+  'omittedContentEvents', 'toolResults', 'orphanToolCalls', 'orphanToolResults', 'averageToolLatencyMs',
+  'maxToolLatencyMs', 'modelSwitches', 'openTurns', 'openSteps', 'activeDurationMs', 'activeTokensPerMinute',
+] as const
+
+/** Decode deterministic analysis metrics while tolerating older v1 additive fields. */
+function metricsOf(value: unknown, legacy: boolean): TrajectoryMetrics | undefined {
   if (!isRecord(value)) return undefined
-  const numericKeys = [
-    'eventCount', 'includedEventCount', 'omittedChunkEvents', 'omittedContentEvents', 'turnCount', 'completedTurns', 'failedTurns',
-    'stepCount', 'assistantRequests', 'toolCalls', 'toolResults', 'toolErrors', 'orphanToolCalls', 'orphanToolResults',
-    'averageToolLatencyMs', 'maxToolLatencyMs', 'retries', 'compactions', 'approvalsAsked', 'approvalsRejected',
-    'subagents', 'modelSwitches', 'openTurns', 'openSteps', 'durationMs', 'activeDurationMs',
-    'eventsPerMinute', 'tokensPerMinute', 'activeTokensPerMinute',
-  ] as const
-  if (!numericKeys.every(key => typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0)) {
-    return undefined
+  const validNumber = (candidate: unknown): candidate is number =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0
+  if (!BASE_METRIC_KEYS.every(key => validNumber(value[key]))) return undefined
+  const additive: Record<string, number> = {}
+  for (const key of ADDITIVE_METRIC_KEYS) {
+    if (value[key] === undefined && legacy) additive[key] = 0
+    else if (validNumber(value[key])) additive[key] = value[key]
+    else return undefined
   }
+
   const usage = bucketsOf(value.usage)
-  const retryUsage = bucketsOf(value.retryUsage)
-  const reconciliation = reconciliationOf(value.reconciliation)
-  if (usage === undefined || retryUsage === undefined || reconciliation === undefined || !Array.isArray(value.spans)) return undefined
-  const spans = value.spans.map(spanOf)
+  if (usage === undefined) return undefined
+  const retryUsage = value.retryUsage === undefined && legacy
+    ? { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+    : bucketsOf(value.retryUsage)
+  if (retryUsage === undefined) return undefined
+  const rawSpans = value.spans === undefined && legacy ? [] : value.spans
+  if (!Array.isArray(rawSpans)) return undefined
+  const spans = rawSpans.map(spanOf)
   if (spans.some(span => span === undefined)
     || (value.largestSpanId !== undefined && typeof value.largestSpanId !== 'string')) return undefined
+
+  const reconciliation = value.reconciliation === undefined && legacy
+    ? {
+        status: 'unavailable' as const,
+        providerUsage: usage,
+        attributedUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        delta: { ...usage },
+      }
+    : reconciliationOf(value.reconciliation)
+  if (reconciliation === undefined) return undefined
   return {
-    ...Object.fromEntries(numericKeys.map(key => [key, value[key]])),
+    ...Object.fromEntries(BASE_METRIC_KEYS.map(key => [key, value[key]])),
+    ...additive,
     usage,
     retryUsage,
     spans: spans as TrajectoryUsageSpan[],
@@ -121,7 +146,8 @@ function metricsOf(value: unknown): TrajectoryMetrics | undefined {
 /** Decode one complete versioned trajectory report. */
 export function trajectoryAnalysisOf(value: unknown): TrajectoryAnalysis | undefined {
   if (!isRecord(value)
-    || value.schema !== 'dsh-token-usage/trajectory-analysis-v1'
+    || (value.schema !== 'dsh-token-usage/trajectory-analysis-v1'
+      && value.schema !== 'dsh-token-usage/trajectory-analysis-v2')
     || typeof value.sessionId !== 'string'
     || typeof value.generatedAt !== 'string'
     || typeof value.truncated !== 'boolean'
@@ -129,7 +155,7 @@ export function trajectoryAnalysisOf(value: unknown): TrajectoryAnalysis | undef
     || !isRecord(value.model)
     || typeof value.model.provider !== 'string'
     || typeof value.model.model !== 'string') return undefined
-  const metrics = metricsOf(value.metrics)
+  const metrics = metricsOf(value.metrics, value.schema === 'dsh-token-usage/trajectory-analysis-v1')
   const auxiliary = value.analysisUsage === undefined ? undefined : bucketsOf(value.analysisUsage)
   if (metrics === undefined || (value.analysisUsage !== undefined && auxiliary === undefined)) return undefined
   return {

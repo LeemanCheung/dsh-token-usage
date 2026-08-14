@@ -27,7 +27,7 @@ interface TokenUsageSectionInjected {
   hooks: {
     budget: ObservableSnapshot<TokenUsageBudgetSnapshot>
   }
-  setBudget(value: number): Promise<void>
+  setBudget(value: number): Promise<number>
   download: DownloadPort
   openSession(sessionId: SessionId): void
   listAnalysisModels(signal: AbortSignal): Promise<TokenUsageAnalysisModelCatalog>
@@ -523,7 +523,7 @@ function BudgetPanel({
 }: {
   days: readonly DailyTokenUsageRecord[]
   snapshot: TokenUsageBudgetSnapshot
-  setBudget(value: number): Promise<void>
+  setBudget(value: number): Promise<number>
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const insight = useMemo(() => periodInsight(days, 30), [days])
@@ -531,11 +531,20 @@ function BudgetPanel({
   const used = totalTokens(insight.usage)
   const budget = snapshot.budget
   const enabled = budget > 0
+  const durableValue = enabled ? String(budget) : ''
+  const [draft, setDraft] = useState(durableValue)
   const ratio = enabled ? used / budget : 0
+  useEffect(() => { setDraft(durableValue) }, [durableValue, snapshot.status])
   const save = (value: string): void => {
     const next = value.trim() === '' ? 0 : Number(value)
-    if (!Number.isSafeInteger(next) || next < 0) return
-    void setBudget(next)
+    if (!Number.isSafeInteger(next) || next < 0) {
+      setDraft(durableValue)
+      return
+    }
+    void setBudget(next).then(
+      saved => { setDraft(saved > 0 ? String(saved) : '') },
+      () => { setDraft(durableValue) },
+    )
   }
   return (
     <div className={css.budget}>
@@ -547,15 +556,15 @@ function BudgetPanel({
         <label className={css.budgetInput}>
           <span>{t('budgetInput')}</span>
           <input
-            key={`${snapshot.status}:${budget}`}
             type="number"
             inputMode="numeric"
             min="0"
             step="1"
-            defaultValue={enabled ? String(budget) : ''}
+            value={draft}
             placeholder="0"
             aria-label={t('budgetInput')}
             disabled={snapshot.status !== 'ready'}
+            onChange={(event) => { setDraft(event.currentTarget.value) }}
             onBlur={(event) => { save(event.currentTarget.value) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') event.currentTarget.blur()
@@ -858,7 +867,9 @@ function TrajectoryAnalysisPanel({ state, t }: {
           : `${largestSpan.id} · ${formatTokens(totalTokens(largestSpan.usage))}`} />
         <Metric label={t('analysisReconciliation')} value={metrics.reconciliation.status === 'matched'
           ? t('analysisMatched')
-          : t('analysisMismatch', { count: formatTokens(reconciliationDelta) })} />
+          : metrics.reconciliation.status === 'unavailable'
+            ? t('analysisUnavailable')
+            : t('analysisMismatch', { count: formatTokens(reconciliationDelta) })} />
         <Metric label={t('analysisRate')} value={metrics.activeTokensPerMinute === 0 ? '—' : `${formatCompactTokens(metrics.activeTokensPerMinute)}/min`} />
         <Metric label={t('analysisApprovals')} value={`${metrics.approvalsAsked} / ${metrics.approvalsRejected}`} />
       </div>

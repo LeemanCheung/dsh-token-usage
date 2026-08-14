@@ -33,10 +33,10 @@ describe('TokenUsageBudgetController', () => {
     const controller = new TokenUsageBudgetController({ isLoopback: true, rpc: { call } } as never)
 
     await controller.load()
-    await controller.setBudget(200)
+    expect(await controller.setBudget(200)).toBe(100)
     expect(controller.store.getSnapshot()).toEqual({ status: 'ready', budget: 100 })
 
-    await controller.setBudget(300)
+    expect(await controller.setBudget(300)).toBe(300)
     expect(controller.store.getSnapshot()).toEqual({ status: 'ready', budget: 300 })
   })
 
@@ -59,7 +59,7 @@ describe('TokenUsageBudgetController', () => {
     expect(call).toHaveBeenCalledTimes(2)
     resolveFirst?.({ ok: true, value: { rolling30DayBudget: 200 } })
 
-    await Promise.all([first, second])
+    await expect(Promise.all([first, second])).resolves.toEqual([200, 200])
     expect(controller.store.getSnapshot()).toEqual({ status: 'ready', budget: 200 })
     expect(call).toHaveBeenCalledTimes(3)
   })

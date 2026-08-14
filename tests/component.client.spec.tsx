@@ -122,7 +122,7 @@ function translate(key: keyof typeof zh, params?: Record<string, unknown>): stri
 function props(
   summaries: readonly SessionSummary[] = [first, legacy],
   analyzeTrajectory: TokenUsageSectionProps['analyzeTrajectory'] = async sessionId => ({
-    schema: 'dsh-token-usage/trajectory-analysis-v1',
+    schema: 'dsh-token-usage/trajectory-analysis-v2',
     sessionId,
     generatedAt: '2026-08-14T12:00:00.000Z',
     model: { provider: 'deepseek', model: 'deepseek-chat' },
@@ -200,7 +200,7 @@ function props(
     useSessions,
     useWorkspaces: (() => { throw new Error('unused') }) as TokenUsageSectionProps['useWorkspaces'],
     useBudget: selector => selector({ status: 'ready', budget: 0 }),
-    setBudget: async () => {},
+    setBudget: async value => value,
     download: { save: () => {} },
     openSession: () => {},
     listAnalysisModels: async () => ({
@@ -348,7 +348,7 @@ describe('TokenUsageSection', () => {
 
   it('switches trend periods, persists a budget, and exports aggregate-only data', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
-    const setBudget = vi.fn(async () => {})
+    const setBudget = vi.fn(async (value: number) => value)
     const save = vi.fn()
     render(<TokenUsageSection {...props([activity])} setBudget={setBudget} download={{ save }} />)
 
@@ -395,6 +395,20 @@ describe('TokenUsageSection', () => {
     await screen.findByLabelText('分析模型')
     fireEvent.click(screen.getByRole('button', { name: '刷新模型目录' }))
     await waitFor(() => { expect(listAnalysisModels).toHaveBeenCalledTimes(2) })
+  })
+
+  it('rolls a rejected budget edit back to the last durable value', async () => {
+    render(<TokenUsageSection
+      {...props([activity])}
+      useBudget={selector => selector({ status: 'ready', budget: 100 })}
+      setBudget={async () => 100}
+    />)
+    const input = screen.getByLabelText('30 日预算（Token）') as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: '200' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => { expect(input.value).toBe('100') })
   })
 
   it('selects an integrated model and sends only aggregate Token records for AI optimization', async () => {
