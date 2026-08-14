@@ -19,6 +19,7 @@ describe('usage analysis client', () => {
       default: { provider: 'deepseek', model: 'chat' },
     })).toEqual({
       models: [{ provider: 'deepseek', providerName: 'DeepSeek', model: 'chat', modelName: 'Chat' }],
+      failures: [],
       default: { provider: 'deepseek', model: 'chat' },
     })
     expect(analysisModelCatalogOf({
@@ -26,6 +27,17 @@ describe('usage analysis client', () => {
       default: { provider: 'other', model: 'other' },
     })).toEqual({
       models: [{ provider: 'deepseek', providerName: 'DeepSeek', model: 'chat', modelName: 'Chat' }],
+      failures: [],
+    })
+  })
+
+  it('keeps healthy routes when the Host reports a provider list failure', () => {
+    expect(analysisModelCatalogOf({
+      models: [{ provider: 'healthy', providerName: 'Healthy', model: 'model', modelName: 'Model' }],
+      failures: [{ provider: 'offline', providerName: 'Offline provider' }],
+    })).toEqual({
+      models: [{ provider: 'healthy', providerName: 'Healthy', model: 'model', modelName: 'Model' }],
+      failures: [{ provider: 'offline', providerName: 'Offline provider' }],
     })
   })
 

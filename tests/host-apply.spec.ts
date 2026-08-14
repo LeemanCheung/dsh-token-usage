@@ -174,7 +174,7 @@ describe('host apply', () => {
     expect(stream.mock.calls[0]?.[0]).not.toHaveProperty('sessionId')
   })
 
-  it('lists integrated models and analyzes only aggregate usage through a selected route', async () => {
+  it('keeps healthy catalog routes when a provider list fails and lets the adapter validate a selected route', async () => {
     let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
     const stream = vi.fn(async function* () {
       yield { type: 'text-delta' as const, index: 0, text: '# 用量概览\n\n缓存效率良好。' }
@@ -198,11 +198,15 @@ describe('host apply', () => {
       llm: {
         listProviders: () => [
           { id: 'deepseek', name: 'DeepSeek' },
+          { id: 'offline', name: 'Offline provider' },
           { id: 'openai', name: 'OpenAI' },
         ],
-        listModels: async (provider: string) => provider === 'deepseek'
-          ? [{ provider, id: 'chat', name: 'DeepSeek Chat' }]
-          : [{ provider, id: 'gpt', name: 'GPT' }],
+        listModels: async (provider: string) => {
+          if (provider === 'offline') throw new Error('adapter unavailable')
+          return provider === 'deepseek'
+            ? [{ provider, id: 'chat', name: 'DeepSeek Chat' }]
+            : [{ provider, id: 'gpt', name: 'GPT' }]
+        },
         prepareCall,
       },
       logger: { warn: vi.fn() },
@@ -225,7 +229,7 @@ describe('host apply', () => {
         days: [{ date: '2026-08-14', usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 } }],
       },
     }, signal) as { ok: boolean; value?: { model: { provider: string; model: string }; report: string } }
-    const rejected = await handler?.('usage/analyze', {
+    const adapterResolved = await handler?.('usage/analyze', {
       model: { provider: 'missing', model: 'route' }, language: 'zh', input: {
         usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
         compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, models: [], days: [],
@@ -240,12 +244,14 @@ describe('host apply', () => {
           { provider: 'openai', model: 'gpt' },
         ],
         default: { provider: 'deepseek', model: 'chat' },
+        failures: [{ provider: 'offline', providerName: 'Offline provider' }],
       },
     })
     expect(result).toMatchObject({ ok: true, value: { model: { provider: 'openai', model: 'gpt' }, report: '# 用量概览\n\n缓存效率良好。' } })
     expect(prepareCall).toHaveBeenCalledWith({ provider: 'openai', model: 'gpt', maxTokens: 2_600 }, expect.any(AbortSignal))
-    expect(rejected).toMatchObject({ ok: false })
-    expect(prepareCall).toHaveBeenCalledTimes(1)
+    expect(adapterResolved).toMatchObject({ ok: true, value: { model: { provider: 'missing', model: 'route' } } })
+    expect(prepareCall).toHaveBeenCalledWith({ provider: 'missing', model: 'route', maxTokens: 2_600 }, expect.any(AbortSignal))
+    expect(prepareCall).toHaveBeenCalledTimes(2)
   })
 
   it('cancels and drains history warming when its fiber is disposed', async () => {

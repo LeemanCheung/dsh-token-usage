@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ObservableSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
@@ -721,6 +721,7 @@ function UsageAnalysisPanel({
   selectedModel,
   state,
   onSelectModel,
+  onRefreshCatalog,
   onAnalyze,
   t,
 }: {
@@ -728,6 +729,7 @@ function UsageAnalysisPanel({
   selectedModel: TokenUsageAnalysisModelSelection | undefined
   state: TokenUsageAnalysisState
   onSelectModel(model: TokenUsageAnalysisModelSelection): void
+  onRefreshCatalog(): void
   onAnalyze(): void
   t: TokenUsageSectionProps['t']
 }): ReactNode {
@@ -737,8 +739,16 @@ function UsageAnalysisPanel({
   if (catalog.status === 'error') {
     return <div className={css.analysisError}><h3>{t('usageAnalysis')}</h3><p>{t('analysisModelsFailed', { message: catalog.message })}</p></div>
   }
+  const catalogFailures = catalog.value.failures ?? []
   if (catalog.value.models.length === 0 || selectedModel === undefined) {
-    return <div className={css.analysisEmpty}><h3>{t('usageAnalysis')}</h3><p>{t('analysisModelsUnavailable')}</p></div>
+    return <div className={css.analysisEmpty}>
+      <h3>{t('usageAnalysis')}</h3>
+      <p>{t('analysisModelsUnavailable')}</p>
+      {catalogFailures.length === 0 ? null : <p className={css.analysisWarning}>{t('analysisModelsAllFailed', {
+        providers: catalogFailures.map(failure => failure.providerName).join(', '),
+      })}</p>}
+      <button className={css.quietButton} type="button" onClick={onRefreshCatalog}>{t('refreshAnalysisModels')}</button>
+    </div>
   }
   const report = state.status === 'ready' ? state.value : undefined
   const analysisTokens = report?.analysisUsage === undefined ? undefined : totalTokens(report.analysisUsage)
@@ -768,8 +778,12 @@ function UsageAnalysisPanel({
           </select>
         </label>
       </div>
+      <button className={css.quietButton} type="button" disabled={state.status === 'loading'} onClick={onRefreshCatalog}>{t('refreshAnalysisModels')}</button>
       <p className={css.analysisPrivacy}>{t('usageAnalysisPrivacy')}</p>
       <p className={css.analysisScope}>{t('analysisModelScope')}</p>
+      {catalogFailures.length === 0 ? null : <p className={css.analysisWarning}>{t('analysisModelsPartial', {
+        providers: catalogFailures.map(failure => failure.providerName).join(', '),
+      })}</p>}
       <button
         className={css.analysisButton}
         type="button"
@@ -884,26 +898,33 @@ export function TokenUsageSection({
   const [usageReport, setUsageReport] = useState<TokenUsageAnalysisState>({ status: 'idle' })
   const trajectoryController = useRef<AbortController>()
   const usageController = useRef<AbortController>()
+  const catalogController = useRef<AbortController>()
   useEffect(() => () => {
     trajectoryController.current?.abort()
     usageController.current?.abort()
+    catalogController.current?.abort()
   }, [])
-  useEffect(() => {
+  const refreshAnalysisModels = useCallback((): void => {
+    catalogController.current?.abort()
     const controller = new AbortController()
+    catalogController.current = controller
+    setAnalysisCatalog({ status: 'loading' })
     void listAnalysisModels(controller.signal).then((catalog) => {
-      if (controller.signal.aborted) return
+      if (catalogController.current !== controller || controller.signal.aborted) return
       setAnalysisCatalog({ status: 'ready', value: catalog })
       setSelectedAnalysisModel(current => current !== undefined
         && catalog.models.some(model => model.provider === current.provider && model.model === current.model)
         ? current
         : catalog.default ?? catalog.models[0])
     }, (error: unknown) => {
-      if (!controller.signal.aborted) {
+      if (catalogController.current === controller && !controller.signal.aborted) {
         setAnalysisCatalog({ status: 'error', message: error instanceof Error ? error.message : String(error) })
       }
     })
-    return () => { controller.abort() }
-  }, [])
+  }, [listAnalysisModels])
+  useEffect(() => {
+    refreshAnalysisModels()
+  }, [refreshAnalysisModels])
 
   const runAnalysis = (row: SessionUsageRow): void => {
     if (selectedAnalysisModel === undefined) return
@@ -1030,6 +1051,7 @@ export function TokenUsageSection({
             selectedModel={selectedAnalysisModel}
             state={usageReport}
             onSelectModel={setSelectedAnalysisModel}
+            onRefreshCatalog={refreshAnalysisModels}
             onAnalyze={runUsageAnalysis}
             t={t}
           />

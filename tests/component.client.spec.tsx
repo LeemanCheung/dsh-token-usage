@@ -365,6 +365,38 @@ describe('TokenUsageSection', () => {
     expect(exported).not.toContain('session-activity')
   })
 
+  it('keeps available models usable while disclosing an unavailable provider catalog', async () => {
+    render(<TokenUsageSection {...props([first])} listAnalysisModels={async () => ({
+      models: [{ provider: 'healthy', providerName: 'Healthy', model: 'model', modelName: 'Model' }],
+      failures: [{ provider: 'offline', providerName: 'Offline provider' }],
+    })} />)
+
+    expect(await screen.findByLabelText('分析模型')).toBeTruthy()
+    expect(screen.getByText('以下提供方暂时无法列出模型，但其他可用模型仍可分析：Offline provider。')).toBeTruthy()
+  })
+
+  it('shows a retryable outage disclosure when every model provider fails to list', async () => {
+    render(<TokenUsageSection {...props([first])} listAnalysisModels={async () => ({
+      models: [],
+      failures: [{ provider: 'offline', providerName: 'Offline provider' }],
+    })} />)
+
+    expect(await screen.findByText('暂时无法从以下提供方读取模型：Offline provider。请稍后刷新目录。')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '刷新模型目录' })).toBeTruthy()
+  })
+
+  it('refreshes the live model catalog on demand', async () => {
+    const listAnalysisModels = vi.fn(async () => ({
+      models: [{ provider: 'provider', providerName: 'Provider', model: 'model', modelName: 'Model' }],
+      failures: [],
+    }))
+    render(<TokenUsageSection {...props([first])} listAnalysisModels={listAnalysisModels} />)
+
+    await screen.findByLabelText('分析模型')
+    fireEvent.click(screen.getByRole('button', { name: '刷新模型目录' }))
+    await waitFor(() => { expect(listAnalysisModels).toHaveBeenCalledTimes(2) })
+  })
+
   it('selects an integrated model and sends only aggregate Token records for AI optimization', async () => {
     const usageAnalyze = vi.fn(props([first]).analyzeTokenUsage)
     render(<TokenUsageSection {...props([first])} analyzeTokenUsage={usageAnalyze} />)

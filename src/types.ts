@@ -111,6 +111,12 @@ export interface TokenUsageAnalysisModel {
   modelName: string
 }
 
+/** A provider whose live model list could not be read; details remain in the Host log. */
+export interface TokenUsageAnalysisCatalogFailure {
+  provider: string
+  providerName: string
+}
+
 /** Public USD rates per one million Tokens for one exact provider/model route. */
 export interface TokenUsagePriceRate {
   currency: 'USD'

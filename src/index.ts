@@ -18,6 +18,7 @@ import { analyzeTokenUsage } from './usage-analysis.ts'
 import type {
   DailyTokenUsageRecord,
   ModelTokenUsageRecord,
+  TokenUsageAnalysisCatalogFailure,
   TokenUsageAnalysisInput,
   TokenUsageAnalysisModel,
   TokenUsageAnalysisModelSelection,
@@ -120,7 +121,7 @@ function dailyUsageFrom(payload: unknown): DailyTokenUsageRecord | undefined {
   return { date, usage }
 }
 
-/** Read one model route selected from the server-provided integrated-model catalog. */
+/** Read one bounded model route; the adapter verifies it authoritatively at call time. */
 function modelSelectionFrom(payload: unknown): TokenUsageAnalysisModelSelection | undefined {
   if (!isRecord(payload)) return undefined
   const provider = text(payload.provider, 256)
@@ -176,37 +177,40 @@ function usageAnalysisRequest(payload: unknown): {
   }
 }
 
-/** List every registered model the user may explicitly select for an auxiliary analysis. */
-async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>): Promise<TokenUsageAnalysisModel[]> {
-  const groups = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
-    try {
-      const models = await ctx.llm.listModels(provider.id)
-      return models.map(model => ({
-        provider: provider.id,
-        providerName: provider.name,
-        model: model.id,
-        modelName: model.name,
-      }))
-    } catch (error) {
-      ctx.logger.warn(`token usage: failed to list analysis models for "${provider.id}": ${String(error)}`)
-      return []
-    }
-  }))
-  const seen = new Set<string>()
-  return groups.flat()
-    .filter(entry => {
-      const key = `${entry.provider}\u0000${entry.model}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .sort((left, right) => left.providerName.localeCompare(right.providerName)
-      || left.modelName.localeCompare(right.modelName)
-      || left.provider.localeCompare(right.provider)
-      || left.model.localeCompare(right.model))
+/** Detached, partially available integrated-model catalog for the local selector. */
+interface AnalysisModelCatalog {
+  models: TokenUsageAnalysisModel[]
+  failures: TokenUsageAnalysisCatalogFailure[]
 }
 
-/** Return whether a user-selected route still belongs to the integrated-model catalog. */
+/** List selectable routes without one unavailable provider blocking healthy providers. */
+async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>): Promise<AnalysisModelCatalog> {
+  const models: TokenUsageAnalysisModel[] = []
+  const failures: TokenUsageAnalysisCatalogFailure[] = []
+  const seen = new Set<string>()
+  for (const provider of ctx.llm.listProviders()) {
+    try {
+      const listed = await ctx.llm.listModels(provider.id)
+      for (const model of listed) {
+        const key = `${provider.id}\u0000${model.id}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        models.push({
+          provider: provider.id,
+          providerName: provider.name,
+          model: model.id,
+          modelName: model.name,
+        })
+      }
+    } catch (error) {
+      ctx.logger.warn(`token usage: failed to list analysis models for "${provider.id}": ${String(error)}`)
+      failures.push({ provider: provider.id, providerName: provider.name })
+    }
+  }
+  return { models, failures }
+}
+
+/** Return whether a default route remains visible in the current selector catalog. */
 function isKnownModel(models: readonly TokenUsageAnalysisModel[], selection: TokenUsageAnalysisModelSelection): boolean {
   return models.some(model => model.provider === selection.provider && model.model === selection.model)
 }
@@ -236,13 +240,14 @@ function installRpc(ctx: Context): void {
       case TOKEN_USAGE_RPC_ENDPOINT.analysisModels: {
         const llm = ctx.get('llm')
         if (llm === undefined) return rpcError('Analysis requires an available model service.')
-        const models = await analysisModels({ llm, logger: ctx.logger })
+        const catalog = await analysisModels({ llm, logger: ctx.logger })
         const defaultSelection = ctx.get('agentDefaultModel')?.currentSelection()
         return {
           ok: true,
           value: {
-            models,
-            ...defaultSelection !== undefined && isKnownModel(models, defaultSelection) ? {
+            models: catalog.models,
+            ...catalog.failures.length === 0 ? {} : { failures: catalog.failures },
+            ...defaultSelection !== undefined && isKnownModel(catalog.models, defaultSelection) ? {
               default: { provider: defaultSelection.provider, model: defaultSelection.model },
             } : {},
           },
@@ -254,8 +259,6 @@ function installRpc(ctx: Context): void {
         try {
           const llm = ctx.get('llm')
           if (llm === undefined) return rpcError('Usage analysis requires an available model service.')
-          const models = await analysisModels({ llm, logger: ctx.logger })
-          if (!isKnownModel(models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           return {
             ok: true,
             value: await analyzeTokenUsage({ llm }, request.input, request.model, request.language, operationSignal),
@@ -271,8 +274,6 @@ function installRpc(ctx: Context): void {
         try {
           const llm = ctx.get('llm')
           if (llm === undefined) return rpcError('Trajectory analysis requires an available model service.')
-          const models = await analysisModels({ llm, logger: ctx.logger })
-          if (!isKnownModel(models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           const live = ctx.sessions.get(request.sessionId)
           let events = live?.events
           if (events === undefined) {

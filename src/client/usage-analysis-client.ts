@@ -3,6 +3,7 @@
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   TokenUsageAnalysis,
+  TokenUsageAnalysisCatalogFailure,
   TokenUsageAnalysisInput,
   TokenUsageAnalysisModel,
   TokenUsageAnalysisModelSelection,
@@ -13,6 +14,7 @@ import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from '../rpc.ts'
 /** One server-provided selectable-model catalog and its eligible default route. */
 export interface TokenUsageAnalysisModelCatalog {
   models: readonly TokenUsageAnalysisModel[]
+  failures: readonly TokenUsageAnalysisCatalogFailure[]
   default?: TokenUsageAnalysisModelSelection
 }
 
@@ -46,6 +48,16 @@ function modelOf(value: unknown): TokenUsageAnalysisModel | undefined {
   }
 }
 
+/** Decode one safe provider identifier whose model list was unavailable. */
+function failureOf(value: unknown): TokenUsageAnalysisCatalogFailure | undefined {
+  if (!isRecord(value)
+    || typeof value.provider !== 'string'
+    || typeof value.providerName !== 'string'
+    || value.provider.length === 0
+    || value.providerName.length === 0) return undefined
+  return { provider: value.provider, providerName: value.providerName }
+}
+
 /** Decode a server-selected default only when it belongs to the model catalog. */
 function selectionOf(value: unknown, models: readonly TokenUsageAnalysisModel[]): TokenUsageAnalysisModelSelection | undefined {
   if (!isRecord(value) || typeof value.provider !== 'string' || typeof value.model !== 'string') return undefined
@@ -60,10 +72,14 @@ export function analysisModelCatalogOf(value: unknown): TokenUsageAnalysisModelC
   const models = value.models.map(modelOf)
   if (models.some(model => model === undefined)) return undefined
   const available = models as TokenUsageAnalysisModel[]
+  const rawFailures = value.failures === undefined ? [] : value.failures
+  if (!Array.isArray(rawFailures)) return undefined
+  const failures = rawFailures.map(failureOf)
+  if (failures.some(failure => failure === undefined)) return undefined
   const defaultSelection = selectionOf(value.default, available)
   return defaultSelection === undefined
-    ? { models: available }
-    : { models: available, default: defaultSelection }
+    ? { models: available, failures: failures as TokenUsageAnalysisCatalogFailure[] }
+    : { models: available, failures: failures as TokenUsageAnalysisCatalogFailure[], default: defaultSelection }
 }
 
 /** Decode one complete versioned aggregate Token usage report. */
