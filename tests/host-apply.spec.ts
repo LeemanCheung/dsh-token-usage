@@ -170,7 +170,7 @@ describe('host apply', () => {
         model: { provider: 'configured', model: 'audit' },
       },
     })
-    expect(stream).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-a' }))
+    expect(stream.mock.calls[0]?.[0]).not.toHaveProperty('sessionId')
   })
 
   it('lists integrated models and analyzes only aggregate usage through a selected route', async () => {

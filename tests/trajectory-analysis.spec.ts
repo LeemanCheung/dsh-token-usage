@@ -157,11 +157,10 @@ describe('trajectory analysis', () => {
     expect(request).toEqual(expect.objectContaining({
       provider: 'configured',
       model: 'audit-model',
-      sessionId: 'private-session-id',
       system: expect.stringContaining('Token reconciliation and composition'),
       messages: expect.any(Array),
     }))
-    const modelEvidence = JSON.stringify(request?.messages)
+    const modelEvidence = JSON.stringify(request)
     expect(modelEvidence).not.toContain('private-session-id')
     expect(modelEvidence).not.toContain('private-')
     expect(result).toMatchObject({

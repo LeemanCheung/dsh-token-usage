@@ -448,7 +448,6 @@ export async function analyzeTrajectory(
     ...preparedCall.config,
     messages,
     system: systemPrompt(language),
-    sessionId,
     signal,
   })) {
     signal.throwIfAborted()
