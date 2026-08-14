@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">dsh-token-usage dashboard illustration</title>
+  <desc id="desc">A Token usage dashboard with metric cards, a 52-week activity heatmap, model usage and session records.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef4ff"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f6cff"/>
+      <stop offset="1" stop-color="#775cf6"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#304878" flood-opacity=".14"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="680" rx="28" fill="url(#page)"/>
+  <circle cx="1090" cy="42" r="180" fill="#dce6ff" opacity=".65"/>
+  <circle cx="80" cy="640" r="150" fill="#e8ddff" opacity=".55"/>
+  <g filter="url(#shadow)">
+    <rect x="58" y="52" width="1084" height="576" rx="20" fill="#ffffff"/>
+  </g>
+  <rect x="58" y="52" width="198" height="576" rx="20" fill="#171c2b"/>
+  <rect x="58" y="164" width="198" height="52" fill="#273557"/>
+  <rect x="58" y="164" width="4" height="52" fill="#75a6ff"/>
+  <text x="84" y="104" fill="#ffffff" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="19" font-weight="700">DSH</text>
+  <text x="84" y="129" fill="#aab6d4" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="12">Settings</text>
+  <text x="84" y="196" fill="#ffffff" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14" font-weight="700">Token 用量</text>
+  <text x="84" y="250" fill="#aab6d4" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14">常规</text>
+  <text x="84" y="294" fill="#aab6d4" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14">模型与提供方</text>
+  <text x="84" y="338" fill="#aab6d4" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14">工作区</text>
+  <text x="84" y="382" fill="#aab6d4" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="14">关于 DSH</text>
+  <g font-family="Arial, 'Microsoft YaHei', sans-serif">
+    <text x="296" y="101" fill="#17233f" font-size="25" font-weight="700">Token 使用记录</text>
+    <text x="296" y="128" fill="#79839a" font-size="13">持久化统计模型请求与上下文压缩用量</text>
+    <g>
+      <rect x="296" y="160" width="152" height="89" rx="12" fill="#f4f7fc" stroke="#e5eaf3"/>
+      <text x="312" y="185" fill="#778198" font-size="11">总 Token</text>
+      <text x="312" y="222" fill="#17233f" font-size="25" font-weight="700">208.3M</text>
+      <rect x="462" y="160" width="152" height="89" rx="12" fill="#f4f7fc" stroke="#e5eaf3"/>
+      <text x="478" y="185" fill="#778198" font-size="11">输入 Token</text>
+      <text x="478" y="222" fill="#17233f" font-size="25" font-weight="700">200M</text>
+      <rect x="628" y="160" width="152" height="89" rx="12" fill="#f4f7fc" stroke="#e5eaf3"/>
+      <text x="644" y="185" fill="#778198" font-size="11">输出 Token</text>
+      <text x="644" y="222" fill="#17233f" font-size="25" font-weight="700">8.3M</text>
+      <rect x="794" y="160" width="152" height="89" rx="12" fill="#f4f7fc" stroke="#e5eaf3"/>
+      <text x="810" y="185" fill="#778198" font-size="11">缓存命中率</text>
+      <text x="810" y="222" fill="#17233f" font-size="25" font-weight="700">92%</text>
+      <rect x="960" y="160" width="152" height="89" rx="12" fill="#f4f7fc" stroke="#e5eaf3"/>
+      <text x="976" y="185" fill="#778198" font-size="11">有用量会话</text>
+      <text x="976" y="222" fill="#17233f" font-size="25" font-weight="700">42</text>
+    </g>
+    <rect x="296" y="270" width="816" height="170" rx="14" fill="#ffffff" stroke="#e5eaf3"/>
+    <text x="316" y="302" fill="#17233f" font-size="15" font-weight="700">Token 活跃度</text>
+    <text x="316" y="323" fill="#79839a" font-size="11">最近 52 周，颜色越深表示当日 Token 使用量越高</text>
+    <g transform="translate(316 345)">
+      <g fill="#edf1f7">
+        <rect x="0" y="0" width="10" height="10" rx="2"/><rect x="0" y="14" width="10" height="10" rx="2"/><rect x="0" y="28" width="10" height="10" rx="2"/><rect x="0" y="42" width="10" height="10" rx="2"/><rect x="0" y="56" width="10" height="10" rx="2"/>
+        <rect x="14" y="0" width="10" height="10" rx="2"/><rect x="14" y="14" width="10" height="10" rx="2"/><rect x="14" y="28" width="10" height="10" rx="2"/><rect x="14" y="42" width="10" height="10" rx="2"/><rect x="14" y="56" width="10" height="10" rx="2"/>
+        <rect x="28" y="0" width="10" height="10" rx="2"/><rect x="28" y="14" width="10" height="10" rx="2"/><rect x="28" y="28" width="10" height="10" rx="2"/><rect x="28" y="42" width="10" height="10" rx="2"/><rect x="28" y="56" width="10" height="10" rx="2"/>
+      </g>
+      <g fill="#d5e4ff">
+        <rect x="42" y="14" width="10" height="10" rx="2"/><rect x="42" y="28" width="10" height="10" rx="2"/><rect x="56" y="0" width="10" height="10" rx="2"/><rect x="56" y="42" width="10" height="10" rx="2"/><rect x="70" y="28" width="10" height="10" rx="2"/><rect x="84" y="14" width="10" height="10" rx="2"/><rect x="84" y="56" width="10" height="10" rx="2"/>
+      </g>
+      <g fill="#8db6ff">
+        <rect x="98" y="0" width="10" height="10" rx="2"/><rect x="98" y="14" width="10" height="10" rx="2"/><rect x="112" y="28" width="10" height="10" rx="2"/><rect x="126" y="42" width="10" height="10" rx="2"/><rect x="140" y="14" width="10" height="10" rx="2"/><rect x="154" y="28" width="10" height="10" rx="2"/><rect x="168" y="0" width="10" height="10" rx="2"/>
+      </g>
+      <g fill="#4e85ff">
+        <rect x="182" y="56" width="10" height="10" rx="2"/><rect x="196" y="14" width="10" height="10" rx="2"/><rect x="210" y="28" width="10" height="10" rx="2"/><rect x="224" y="42" width="10" height="10" rx="2"/><rect x="238" y="0" width="10" height="10" rx="2"/><rect x="252" y="28" width="10" height="10" rx="2"/><rect x="266" y="14" width="10" height="10" rx="2"/>
+      </g>
+      <g fill="#2f6cff">
+        <rect x="280" y="28" width="10" height="10" rx="2"/><rect x="294" y="42" width="10" height="10" rx="2"/><rect x="308" y="14" width="10" height="10" rx="2"/><rect x="322" y="0" width="10" height="10" rx="2"/><rect x="336" y="56" width="10" height="10" rx="2"/><rect x="350" y="28" width="10" height="10" rx="2"/>
+      </g>
+      <g fill="url(#accent)">
+        <rect x="364" y="14" width="10" height="10" rx="2"/><rect x="378" y="28" width="10" height="10" rx="2"/><rect x="392" y="42" width="10" height="10" rx="2"/><rect x="406" y="0" width="10" height="10" rx="2"/><rect x="420" y="56" width="10" height="10" rx="2"/><rect x="434" y="14" width="10" height="10" rx="2"/><rect x="448" y="28" width="10" height="10" rx="2"/>
+      </g>
+      <g fill="#edf1f7"><rect x="462" y="0" width="10" height="10" rx="2"/><rect x="462" y="14" width="10" height="10" rx="2"/><rect x="462" y="28" width="10" height="10" rx="2"/><rect x="476" y="42" width="10" height="10" rx="2"/><rect x="490" y="56" width="10" height="10" rx="2"/></g>
+    </g>
+    <text x="1005" y="404" fill="#79839a" font-size="10">少</text><rect x="1025" y="395" width="10" height="10" rx="2" fill="#edf1f7"/><rect x="1040" y="395" width="10" height="10" rx="2" fill="#d5e4ff"/><rect x="1055" y="395" width="10" height="10" rx="2" fill="#8db6ff"/><rect x="1070" y="395" width="10" height="10" rx="2" fill="#2f6cff"/><text x="1090" y="404" fill="#79839a" font-size="10">多</text>
+    <rect x="296" y="460" width="500" height="140" rx="14" fill="#ffffff" stroke="#e5eaf3"/>
+    <text x="316" y="491" fill="#17233f" font-size="15" font-weight="700">模型用量</text>
+    <text x="316" y="518" fill="#79839a" font-size="11">提供方 / 模型</text><text x="619" y="518" fill="#79839a" font-size="11">总量</text><text x="710" y="518" fill="#79839a" font-size="11">输出</text>
+    <line x1="316" y1="530" x2="776" y2="530" stroke="#edf1f7"/>
+    <text x="316" y="554" fill="#17233f" font-size="12" font-weight="700">deepseek-chat</text><text x="316" y="571" fill="#79839a" font-size="10">deepseek</text><text x="619" y="557" fill="#17233f" font-size="12">100.4M</text><text x="710" y="557" fill="#17233f" font-size="12">4.2M</text>
+    <line x1="316" y1="581" x2="776" y2="581" stroke="#edf1f7"/>
+    <text x="316" y="599" fill="#17233f" font-size="12" font-weight="700">deepseek-reasoner</text><text x="619" y="599" fill="#17233f" font-size="12">79.7M</text><text x="710" y="599" fill="#17233f" font-size="12">3.8M</text>
+    <rect x="816" y="460" width="296" height="140" rx="14" fill="url(#accent)"/>
+    <text x="840" y="498" fill="#ffffff" font-size="15" font-weight="700">隐私优先</text>
+    <text x="840" y="526" fill="#e8efff" font-size="12">只统计 Token bucket</text>
+    <text x="840" y="548" fill="#e8efff" font-size="12">不保存提示词或回复正文</text>
+    <path d="M1045 551 l12 12 l25 -31" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
