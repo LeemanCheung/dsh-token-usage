@@ -22,7 +22,16 @@ const events = [
     usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
   }),
   event(4, 15_000, 'tool/call', { turn: 1, step: 1, callId: 'private-call', name: 'private-tool', arguments: '{"secret":"private-argument"}' }),
-  event(5, 30_000, 'tool/result', { turn: 1, step: 1, message: { content: 'private-result', isError: true } }),
+  event(5, 30_000, 'tool/result', {
+    turn: 1,
+    step: 1,
+    message: {
+      role: 'user',
+      source: { kind: 'tool', callId: 'private-call' },
+      content: 'private-result',
+      isError: true,
+    },
+  }),
   event(6, 35_000, 'llm/retry', { turn: 1, step: 1, retry: 1, delayMs: 500, failure: { code: 'SERVER', message: 'private-error' } }),
   event(7, 40_000, 'approval/asked', { id: 'private-approval', toolName: 'private-tool' }),
   event(8, 45_000, 'approval/decided', { id: 'private-approval', outcome: 'rejected' }),
@@ -45,14 +54,24 @@ describe('trajectory analysis', () => {
       stepCount: 1,
       assistantRequests: 1,
       toolCalls: 1,
+      toolResults: 1,
       toolErrors: 1,
+      orphanToolCalls: 0,
+      orphanToolResults: 0,
+      averageToolLatencyMs: 15_000,
+      maxToolLatencyMs: 15_000,
       retries: 1,
       approvalsAsked: 1,
       approvalsRejected: 1,
       subagents: 1,
+      modelSwitches: 0,
+      openTurns: 0,
+      openSteps: 1,
       durationMs: 60_000,
+      activeDurationMs: 60_000,
       eventsPerMinute: 11,
       tokensPerMinute: 155,
+      activeTokensPerMinute: 155,
       usage: { uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
       retryUsage: { uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
       largestSpanId: 'model:1:1:0',
@@ -71,6 +90,36 @@ describe('trajectory analysis', () => {
     expect(prepared.timeline).not.toContain('assistant/chunk')
     expect(prepared.timeline).toContain('"failure":true')
     expect(prepared.truncated).toBe(false)
+  })
+
+  it('detects route switches, orphaned tools, and unfinished lifecycle spans without exposing identifiers', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'request/context', { provider: 'private-first', model: 'private-model-a' }),
+      event(1, 1_000, 'turn/start', { turn: 3 }),
+      event(2, 2_000, 'step/start', { turn: 3, step: 1 }),
+      event(3, 3_000, 'tool/call', { turn: 3, step: 1, callId: 'private-missing-result', name: 'private-tool', arguments: '{}' }),
+      event(4, 4_000, 'request/header', { header: { config: { provider: 'private-second', model: 'private-model-b' } } }),
+      event(5, 5_000, 'tool/result', {
+        turn: 3,
+        step: 1,
+        message: { role: 'user', source: { kind: 'tool', callId: 'private-missing-call' }, content: [] },
+      }),
+      event(6, 61_000, 'session/checkpoint', {}),
+    ])
+
+    expect(prepared.metrics).toMatchObject({
+      modelSwitches: 1,
+      toolCalls: 1,
+      toolResults: 1,
+      orphanToolCalls: 1,
+      orphanToolResults: 1,
+      averageToolLatencyMs: 0,
+      maxToolLatencyMs: 0,
+      openTurns: 1,
+      openSteps: 1,
+      activeDurationMs: 60_000,
+    })
+    expect(prepared.timeline).not.toContain('private-')
   })
 
   it('keeps failed-attempt usage and replaces successful provisional usage with final usage', () => {

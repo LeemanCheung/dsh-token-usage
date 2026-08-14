@@ -142,21 +142,21 @@ function props(
       toolErrors: 1,
       orphanToolCalls: 0,
       orphanToolResults: 0,
-      averageToolLatencyMs: 250,
-      maxToolLatencyMs: 600,
+      averageToolLatencyMs: 1_500,
+      maxToolLatencyMs: 3_000,
       retries: 1,
       compactions: 0,
       approvalsAsked: 1,
       approvalsRejected: 0,
       subagents: 1,
-      modelSwitches: 0,
+      modelSwitches: 1,
       openTurns: 0,
       openSteps: 0,
       durationMs: 60_000,
-      activeDurationMs: 50_000,
+      activeDurationMs: 30_000,
       eventsPerMinute: 20,
       tokensPerMinute: 190,
-      activeTokensPerMinute: 228,
+      activeTokensPerMinute: 380,
       usage: { uncachedInputTokens: 100, outputTokens: 30, cacheReadTokens: 50, cacheWriteTokens: 10 },
       retryUsage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
       spans: [{
@@ -374,6 +374,9 @@ describe('TokenUsageSection', () => {
     )
     expect(screen.getByText(/deepseek\/deepseek-chat ·/)).toBeTruthy()
     expect(screen.getByText('本次分析 60 Token')).toBeTruthy()
+    expect(screen.getByText('工具延迟（均值 / 最大）')).toBeTruthy()
+    expect(screen.getByText('1.5s / 3s')).toBeTruthy()
+    expect(screen.getByText('model:1:1:0 · 190')).toBeTruthy()
   })
 
   it('renders totals, model attribution, and filters session records', () => {

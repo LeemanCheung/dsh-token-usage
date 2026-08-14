@@ -92,8 +92,10 @@ function metricsOf(value: unknown): TrajectoryMetrics | undefined {
   if (!isRecord(value)) return undefined
   const numericKeys = [
     'eventCount', 'includedEventCount', 'omittedChunkEvents', 'omittedContentEvents', 'turnCount', 'completedTurns', 'failedTurns',
-    'stepCount', 'assistantRequests', 'toolCalls', 'toolErrors', 'retries', 'compactions', 'approvalsAsked',
-    'approvalsRejected', 'subagents', 'durationMs', 'eventsPerMinute', 'tokensPerMinute',
+    'stepCount', 'assistantRequests', 'toolCalls', 'toolResults', 'toolErrors', 'orphanToolCalls', 'orphanToolResults',
+    'averageToolLatencyMs', 'maxToolLatencyMs', 'retries', 'compactions', 'approvalsAsked', 'approvalsRejected',
+    'subagents', 'modelSwitches', 'openTurns', 'openSteps', 'durationMs', 'activeDurationMs',
+    'eventsPerMinute', 'tokensPerMinute', 'activeTokensPerMinute',
   ] as const
   if (!numericKeys.every(key => typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0)) {
     return undefined

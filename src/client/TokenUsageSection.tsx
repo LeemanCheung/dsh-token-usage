@@ -130,6 +130,12 @@ function formatCompactTokens(value: number): string {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value / unit.divisor)}${unit.suffix}`
 }
 
+/** Format deterministic tool latency for one compact metric card. */
+function formatLatency(value: number): string {
+  if (value < 1_000) return `${Math.round(value)}ms`
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value / 1_000)}s`
+}
+
 /** Whether a dashboard-only row contains usage whose model route is unavailable. */
 function isUnattributed(model: ModelTokenUsageRecord): boolean {
   return model.provider === '' && model.model === ''
@@ -654,15 +660,21 @@ function TrajectoryAnalysisPanel({ state, t }: {
         {analysisTokens === undefined ? null : <span className={css.analysisCost}>{t('analysisCost', { total: formatTokens(analysisTokens) })}</span>}
       </div>
       <div className={css.analysisMetrics}>
-        <Metric label={t('analysisTurns')} value={metrics.turnCount} />
-        <Metric label={t('analysisTools')} value={`${metrics.toolCalls} / ${metrics.toolErrors}`} />
+        <Metric label={t('analysisTurns')} value={`${metrics.turnCount} / ${metrics.openTurns}`} />
+        <Metric label={t('analysisTools')} value={`${metrics.toolCalls} / ${metrics.toolResults} / ${metrics.toolErrors}`} />
+        <Metric label={t('analysisIntegrity')} value={`${metrics.orphanToolCalls + metrics.orphanToolResults} / ${metrics.openSteps}`} />
+        <Metric label={t('analysisToolLatency')} value={metrics.averageToolLatencyMs === 0
+          ? '—'
+          : `${formatLatency(metrics.averageToolLatencyMs)} / ${formatLatency(metrics.maxToolLatencyMs)}`} />
         <Metric label={t('analysisRetries')} value={metrics.retries} />
         <Metric label={t('analysisRetryTokens')} value={totalTokens(metrics.retryUsage)} />
-        <Metric label={t('analysisLargest')} value={largestSpan === undefined ? '—' : totalTokens(largestSpan.usage)} />
+        <Metric label={t('analysisLargest')} value={largestSpan === undefined
+          ? '—'
+          : `${largestSpan.id} · ${formatTokens(totalTokens(largestSpan.usage))}`} />
         <Metric label={t('analysisReconciliation')} value={metrics.reconciliation.status === 'matched'
           ? t('analysisMatched')
           : t('analysisMismatch', { count: formatTokens(reconciliationDelta) })} />
-        <Metric label={t('analysisRate')} value={metrics.tokensPerMinute === 0 ? '—' : `${formatCompactTokens(metrics.tokensPerMinute)}/min`} />
+        <Metric label={t('analysisRate')} value={metrics.activeTokensPerMinute === 0 ? '—' : `${formatCompactTokens(metrics.activeTokensPerMinute)}/min`} />
         <Metric label={t('analysisApprovals')} value={`${metrics.approvalsAsked} / ${metrics.approvalsRejected}`} />
       </div>
       {analysis.truncated ? <p className={css.analysisWarning}>{t('analysisTruncated')}</p> : null}
