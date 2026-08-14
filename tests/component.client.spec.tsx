@@ -224,7 +224,10 @@ describe('TokenUsageSection', () => {
     render(<TokenUsageSection {...props([activity])} />)
 
     expect(screen.getByRole('grid', { name: 'Token 活跃度' })).toBeTruthy()
-    expect(screen.getByTitle('2026-08-12 · 1,000 Token').getAttribute('data-level')).toBe('4')
+    const cell = screen.getAllByRole('gridcell').find(item => item.getAttribute('title')?.startsWith('2026-08-12'))
+    expect(screen.getAllByRole('gridcell')).toHaveLength(210)
+    expect(cell?.getAttribute('title')).toBe('2026-08-12\n总计 1,000 Token\n输入 1,000 · 输出 0\n缓存：读 0 · 写 0')
+    expect(cell?.getAttribute('data-level')).toBe('4')
   })
 
   it('renders totals, model attribution, and filters session records', () => {

@@ -196,27 +196,33 @@ function TokenValue({ value }: { value: number }): ReactNode {
 
 interface ActivityDay {
   date: string
+  usage: TokenUsageBuckets
   tokens: number
   level: 0 | 1 | 2 | 3 | 4
+  future: boolean
 }
 
-/** Build Monday-first calendar cells for the previous 52 weeks. */
+/** Build exactly 30 Monday-first calendar weeks, including blank future days this week. */
 function activityCalendar(days: readonly DailyTokenUsageRecord[], now = Date.now()): ActivityDay[] {
-  const byDate = new Map(days.map(day => [day.date, totalTokens(day.usage)]))
-  const end = new Date(`${dayKey(now)}T00:00:00.000Z`)
+  const byDate = new Map(days.map(day => [day.date, day.usage]))
+  const today = dayKey(now)
+  const end = new Date(`${today}T00:00:00.000Z`)
   const start = new Date(end)
-  start.setUTCDate(start.getUTCDate() - 364)
-  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7))
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7) - 29 * 7)
 
   const dates: string[] = []
-  for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+  for (const cursor = new Date(start); dates.length < 30 * 7; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     dates.push(dayKey(cursor.getTime()))
   }
-  const maximum = Math.max(0, ...dates.map(date => byDate.get(date) ?? 0))
+  const maximum = Math.max(0, ...dates
+    .filter(date => date <= today)
+    .map(date => totalTokens(byDate.get(date) ?? zeroBuckets())))
   return dates.map((date) => {
-    const tokens = byDate.get(date) ?? 0
+    const future = date > today
+    const usage = byDate.get(date) ?? zeroBuckets()
+    const tokens = future ? 0 : totalTokens(usage)
     const level = tokens === 0 || maximum === 0 ? 0 : Math.ceil(tokens / maximum * 4) as ActivityDay['level']
-    return { date, tokens, level }
+    return { date, usage, tokens, level, future }
   })
 }
 
@@ -237,15 +243,25 @@ function ActivityHeatmap({ days, t }: { days: readonly DailyTokenUsageRecord[]; 
         </div>
       </div>
       <div className={css.activityGrid} role="grid" aria-label={t('activity')}>
-        {calendar.map(day => (
-          <i
-            key={day.date}
-            role="gridcell"
-            data-level={day.level}
-            title={t('activityTooltip', { date: day.date, tokens: formatTokens(day.tokens) })}
-            aria-label={t('activityTooltip', { date: day.date, tokens: formatTokens(day.tokens) })}
-          />
-        ))}
+        {calendar.map((day) => {
+          const details = day.future ? undefined : t('activityTooltip', {
+            date: day.date,
+            total: formatTokens(day.tokens),
+            input: formatTokens(inputTokens(day.usage)),
+            output: formatTokens(day.usage.outputTokens),
+            cacheRead: formatTokens(day.usage.cacheReadTokens),
+            cacheWrite: formatTokens(day.usage.cacheWriteTokens),
+          })
+          return (
+            <i
+              key={day.date}
+              role="gridcell"
+              data-level={day.level}
+              data-future={day.future ? 'true' : undefined}
+              {...details === undefined ? {} : { title: details, 'aria-label': details }}
+            />
+          )
+        })}
       </div>
     </div>
   )

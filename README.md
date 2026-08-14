@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/token-usage-settings.png" alt="DSH 设置页中的 Token 使用记录：统计卡、52 周热力图与模型用量表" width="100%">
+  <img src="./assets/token-usage-settings.png" alt="DSH 设置页中的 Token 使用记录：统计卡、30 周热力图与模型用量表" width="100%">
 </p>
 
 > 真实 DSH 设置页截图。截图仅展示聚合 Token 统计与模型路由，不包含会话标题、提示词或回复正文。
@@ -20,7 +20,7 @@
 ## 🗺️ 功能概览
 
 <p align="center">
-  <img src="./assets/token-usage-dashboard.svg" alt="Token 使用记录功能示意：统计卡、52 周活跃度热力图、模型用量与隐私保护" width="100%">
+  <img src="./assets/token-usage-dashboard.svg" alt="Token 使用记录功能示意：统计卡、30 周活跃度热力图、模型用量与隐私保护" width="100%">
 </p>
 
 ## ✨ 亮点
@@ -29,7 +29,7 @@
 | --- | --- |
 | **完整 Token bucket** | 分别记录未缓存输入、输出、缓存读取与缓存写入；`reasoningTokens` 已包含在输出中，不重复计算。 |
 | **多维统计** | 以 provider / model、会话与 UTC 日期聚合普通对话、每次重试和上下文压缩用量。 |
-| **52 周热力图** | GitHub commit graph 风格的 Token 活跃度图；颜色越深代表当天总用量越高，悬停可查看精确数值。 |
+| **30 周热力图** | GitHub commit graph 风格的 Token 活跃度图；颜色越深代表当天总用量越高，悬停可查看总量、输入、输出与缓存读写明细。 |
 | **紧凑布局** | 使用 `K` / `M` / `B` 展示大数字，悬停显示完整数值；热力图自适应设置页宽度，默认无需横向拖动。 |
 | **历史预热** | 启动后顺序回放可读取的历史会话并写入 projection cache，不阻塞插件启动。 |
 | **隐私优先** | 仅保留统计 bucket、日期和模型路由，不复制提示词、回复内容或其他会话正文。 |
@@ -56,7 +56,7 @@ dsh plugin --profile web add ./dsh-token-usage
 ## 📊 仪表盘内容
 
 - **概览卡片**：总 Token、输入 Token、输出 Token、缓存命中率和有用量会话数。
-- **Token 活跃度**：最近 52 周按天汇总的热力图；每个方格提供“日期 · 精确 Token 数”的悬停说明。
+- **Token 活跃度**：最近 30 周按天汇总的热力图；悬停方格可查看日期、总量、输入、输出以及缓存读写明细。
 - **模型用量**：按 provider / model 汇总调用次数、总量、输入与输出；缓存读写作为输入的辅助明细展示。
 - **会话记录**：可搜索会话标题、会话 ID 或模型路由，并查看最近活动时间及用量分布。
 
@@ -79,7 +79,7 @@ flowchart LR
   B --> C[Session projection cache]
   C --> D[Settings · Token 用量]
   D --> E[概览与模型统计]
-  D --> F[52 周活跃度热力图]
+  D --> F[30 周活跃度热力图]
 ```
 
 - Host 侧监听普通模型请求、重试和上下文压缩事件，构建会话级持久 projection。
