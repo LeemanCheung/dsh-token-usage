@@ -11,10 +11,16 @@
 </p>
 
 <p align="center">
-  <img src="./assets/token-usage-dashboard.svg" alt="Token 使用记录设置页示意：统计卡、52 周活跃度热力图与模型用量表" width="100%">
+  <img src="./assets/token-usage-settings.png" alt="DSH 设置页中的 Token 使用记录：统计卡、52 周热力图与模型用量表" width="100%">
 </p>
 
-> 上图为界面示意图。插件会从 DSH 的持久会话日志构建统计，不保存提示词或回复正文。
+> 真实 DSH 设置页截图。截图仅展示聚合 Token 统计与模型路由，不包含会话标题、提示词或回复正文。
+
+## 🗺️ 功能概览
+
+<p align="center">
+  <img src="./assets/token-usage-dashboard.svg" alt="Token 使用记录功能示意：统计卡、52 周活跃度热力图、模型用量与隐私保护" width="100%">
+</p>
 
 ## ✨ 亮点
 
