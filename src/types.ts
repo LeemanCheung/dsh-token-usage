@@ -31,11 +31,44 @@ export interface TokenUsageRecorderProjection {
   days: readonly DailyTokenUsageRecord[]
 }
 
-/** Deterministic measurements extracted before model-driven trajectory review. */
+/** Signed bucket delta used to expose accounting mismatches without normalization. */
+export interface SignedTokenUsageBuckets {
+  uncachedInputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+/** One provider-reported model or compaction usage node in a session trajectory. */
+export interface TrajectoryUsageSpan {
+  id: string
+  kind: 'model' | 'compaction'
+  seq: number
+  turn?: number
+  step?: number
+  attempt?: number
+  provider: string
+  model: string
+  status: 'open' | 'completed' | 'retried'
+  valueKind: 'actual'
+  finality: 'provisional' | 'authoritative'
+  usage: TokenUsageBuckets
+}
+
+/** Comparison between the provider event ledger and attributed usage spans. */
+export interface TrajectoryReconciliation {
+  status: 'matched' | 'mismatch'
+  providerUsage: TokenUsageBuckets
+  attributedUsage: TokenUsageBuckets
+  delta: SignedTokenUsageBuckets
+}
+
+/** Deterministic metadata-only measurements extracted before model-driven trajectory review. */
 export interface TrajectoryMetrics {
   eventCount: number
   includedEventCount: number
   omittedChunkEvents: number
+  omittedContentEvents: number
   turnCount: number
   completedTurns: number
   failedTurns: number
@@ -62,6 +95,10 @@ export interface TrajectoryMetrics {
   tokensPerMinute: number
   activeTokensPerMinute: number
   usage: TokenUsageBuckets
+  retryUsage: TokenUsageBuckets
+  spans: readonly TrajectoryUsageSpan[]
+  largestSpanId?: string
+  reconciliation: TrajectoryReconciliation
 }
 
 /** One registered provider/model route the user may select for an auxiliary analysis. */

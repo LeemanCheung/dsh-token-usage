@@ -1,14 +1,12 @@
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { TokenUsageBudgetSettings } from '../budget-settings.ts'
+import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from '../rpc.ts'
 
 /** One browser-visible state of the persistent rolling budget. */
 export interface TokenUsageBudgetSnapshot {
   status: 'loading' | 'ready' | 'unavailable'
   budget: number
 }
-
-/** RPC channel dedicated to user-owned Token usage preferences. */
-export const TOKEN_USAGE_RPC_CHANNEL = '/token-usage'
 
 const INITIAL: TokenUsageBudgetSnapshot = { status: 'loading', budget: 0 }
 
@@ -60,7 +58,7 @@ export class TokenUsageBudgetController {
       return
     }
     try {
-      const result = await this.connection.rpc.call(TOKEN_USAGE_RPC_CHANNEL, 'budget/read', {})
+      const result = await this.connection.rpc.call(TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT.budgetRead, {})
       const settings = result.ok ? settingsOf(result.value) : undefined
       this.publish(generation, settings === undefined
         ? { status: 'unavailable', budget: 0 }
@@ -73,19 +71,21 @@ export class TokenUsageBudgetController {
   /** Persist one whole-token rolling budget. Zero disables the budget. */
   async setBudget(rolling30DayBudget: number): Promise<void> {
     if (!Number.isSafeInteger(rolling30DayBudget) || rolling30DayBudget < 0) return
+    const previous = this.store.getSnapshot()
+    const fallback = previous.status === 'ready' ? previous : { status: 'unavailable' as const, budget: 0 }
     const generation = ++this.generation
     if (!this.connection.isLoopback) {
       this.publish(generation, { status: 'unavailable', budget: 0 })
       return
     }
     try {
-      const result = await this.connection.rpc.call(TOKEN_USAGE_RPC_CHANNEL, 'budget/write', { rolling30DayBudget })
+      const result = await this.connection.rpc.call(TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT.budgetWrite, { rolling30DayBudget })
       const settings = result.ok ? settingsOf(result.value) : undefined
       this.publish(generation, settings === undefined
-        ? { status: 'unavailable', budget: 0 }
+        ? fallback
         : { status: 'ready', budget: settings.rolling30DayBudget })
     } catch (_budgetWriteFailure) {
-      this.publish(generation, { status: 'unavailable', budget: 0 })
+      this.publish(generation, fallback)
     }
   }
 

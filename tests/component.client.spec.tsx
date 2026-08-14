@@ -131,6 +131,7 @@ function props(
       eventCount: 20,
       includedEventCount: 15,
       omittedChunkEvents: 5,
+      omittedContentEvents: 8,
       turnCount: 2,
       completedTurns: 2,
       failedTurns: 0,
@@ -157,9 +158,31 @@ function props(
       tokensPerMinute: 190,
       activeTokensPerMinute: 228,
       usage: { uncachedInputTokens: 100, outputTokens: 30, cacheReadTokens: 50, cacheWriteTokens: 10 },
+      retryUsage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      spans: [{
+        id: 'model:1:1:0',
+        kind: 'model',
+        seq: 3,
+        turn: 1,
+        step: 1,
+        attempt: 0,
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        status: 'completed',
+        valueKind: 'actual',
+        finality: 'authoritative',
+        usage: { uncachedInputTokens: 100, outputTokens: 30, cacheReadTokens: 50, cacheWriteTokens: 10 },
+      }],
+      largestSpanId: 'model:1:1:0',
+      reconciliation: {
+        status: 'matched',
+        providerUsage: { uncachedInputTokens: 100, outputTokens: 30, cacheReadTokens: 50, cacheWriteTokens: 10 },
+        attributedUsage: { uncachedInputTokens: 100, outputTokens: 30, cacheReadTokens: 50, cacheWriteTokens: 10 },
+        delta: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
     },
     analysisUsage: { uncachedInputTokens: 40, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 },
-    report: '# 执行摘要\n\n调用链与合规性正常。',
+    report: '# 资源摘要\n\nToken 对账一致。',
   }),
 ): TokenUsageSectionProps {
   const state = {
@@ -342,8 +365,8 @@ describe('TokenUsageSection', () => {
     await waitFor(() => { expect(screen.getByLabelText('分析模型')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))
 
-    expect(screen.getByText('正在分析“主要会话”的完整会话轨迹…')).toBeTruthy()
-    await waitFor(() => { expect(screen.getByText(/调用链与合规性正常/)).toBeTruthy() })
+    expect(screen.getByText('正在分析“主要会话”的元数据轨迹…')).toBeTruthy()
+    await waitFor(() => { expect(screen.getByText(/Token 对账一致/)).toBeTruthy() })
     expect(analyze).toHaveBeenCalledWith(
       'session-first',
       { provider: 'deepseek', model: 'deepseek-chat' },

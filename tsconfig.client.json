@@ -14,6 +14,7 @@
   },
   "include": [
     "src/client",
+    "src/rpc.ts",
     "src/types.ts",
     "src/css-modules.d.ts"
   ]

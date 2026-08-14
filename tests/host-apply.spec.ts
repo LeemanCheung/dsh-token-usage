@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { apply } from '../src/index.ts'
+import { apply, inject } from '../src/index.ts'
 
 function rpcServices() {
   const settings = { rolling30DayBudget: 0 }
@@ -12,10 +12,18 @@ function rpcServices() {
       })),
     },
     connection: { rpc: { handle: vi.fn(() => async () => {}) } },
+    plugin: vi.fn(function (this: Context, plugin: { apply(ctx: Context): void }) {
+      plugin.apply(this)
+      return {}
+    }),
   }
 }
 
 describe('host apply', () => {
+  it('keeps optional settings and model services out of core activation dependencies', () => {
+    expect(inject).toEqual(['sessionProjections', 'sessionProjectionCache', 'sessionQuery', 'sessions'])
+  })
+
   it('persists valid rolling budgets and rejects invalid values through the loopback channel', async () => {
     const rpc = rpcServices()
     const ctx = {

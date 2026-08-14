@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import {
-  analyzeTrajectory,
-  prepareTrajectory,
-  redactTrajectoryText,
-} from '../src/trajectory-analysis.ts'
+import { analyzeTrajectory, prepareTrajectory } from '../src/trajectory-analysis.ts'
 
 function event(seq: number, time: number, type: string, data: Record<string, unknown>): SessionEvent {
   return { seq, time, type, data } as unknown as SessionEvent
@@ -14,153 +10,121 @@ function event(seq: number, time: number, type: string, data: Record<string, unk
 const events = [
   event(0, 0, 'turn/start', { turn: 1 }),
   event(1, 2_000, 'step/start', { turn: 1, step: 1 }),
-  event(2, 4_000, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } }),
+  event(2, 4_000, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'private-output' } }),
   event(3, 10_000, 'assistant/message', {
     turn: 1,
     step: 1,
-    message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+    message: { role: 'assistant', content: [{ type: 'text', text: 'private-reply' }] },
     usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
   }),
-  event(4, 15_000, 'tool/call', { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{"apiKey":"secret"}' }),
-  event(5, 30_000, 'tool/result', {
-    turn: 1,
-    step: 1,
-    message: { role: 'user', source: { kind: 'tool', callId: 'call-1' }, content: [] },
-    error: { name: 'Error', code: 'FAILED' },
-  }),
-  event(6, 35_000, 'llm/retry', { turn: 1, step: 1, retry: 1 }),
-  event(7, 40_000, 'approval/asked', { id: 'approval-1', toolName: 'bash' }),
-  event(8, 45_000, 'approval/decided', { id: 'approval-1', outcome: 'rejected' }),
-  event(9, 50_000, 'subagent/descriptor', { version: 2, mode: 'one-shot', provider: 'in-process' }),
-  event(10, 60_000, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+  event(4, 15_000, 'tool/call', { turn: 1, step: 1, callId: 'private-call', name: 'private-tool', arguments: '{"secret":"private-argument"}' }),
+  event(5, 30_000, 'tool/result', { turn: 1, step: 1, message: { content: 'private-result', isError: true } }),
+  event(6, 35_000, 'llm/retry', { turn: 1, step: 1, retry: 1, delayMs: 500, failure: { code: 'SERVER', message: 'private-error' } }),
+  event(7, 40_000, 'approval/asked', { id: 'private-approval', toolName: 'private-tool' }),
+  event(8, 45_000, 'approval/decided', { id: 'private-approval', outcome: 'rejected' }),
+  event(9, 50_000, 'subagent/descriptor', { label: 'private-agent', prompt: 'private-prompt' }),
+  event(10, 60_000, 'turn/end', { turn: 1, reason: { kind: 'completed', message: 'private-reason' } }),
 ]
 
 describe('trajectory analysis', () => {
-  it('extracts deterministic rates, failures, approvals, and bounded rows', () => {
+  it('extracts deterministic actual measurements without content-bearing fields', () => {
     const prepared = prepareTrajectory(events)
 
     expect(prepared.metrics).toMatchObject({
       eventCount: 11,
       includedEventCount: 10,
       omittedChunkEvents: 1,
+      omittedContentEvents: 4,
       turnCount: 1,
       completedTurns: 1,
       failedTurns: 0,
       stepCount: 1,
       assistantRequests: 1,
       toolCalls: 1,
-      toolResults: 1,
       toolErrors: 1,
-      orphanToolCalls: 0,
-      orphanToolResults: 0,
-      averageToolLatencyMs: 15_000,
-      maxToolLatencyMs: 15_000,
       retries: 1,
       approvalsAsked: 1,
       approvalsRejected: 1,
       subagents: 1,
-      modelSwitches: 0,
-      openTurns: 0,
-      openSteps: 1,
       durationMs: 60_000,
-      activeDurationMs: 60_000,
       eventsPerMinute: 11,
       tokensPerMinute: 155,
-      activeTokensPerMinute: 155,
       usage: { uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
+      retryUsage: { uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5 },
+      largestSpanId: 'model:1:1:0',
+      reconciliation: {
+        status: 'matched',
+        delta: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
     })
+    expect(prepared.metrics.spans).toEqual([expect.objectContaining({
+      id: 'model:1:1:0',
+      status: 'retried',
+      valueKind: 'actual',
+      finality: 'authoritative',
+    })])
+    expect(prepared.timeline).not.toContain('private-')
     expect(prepared.timeline).not.toContain('assistant/chunk')
-    expect(prepared.timeline).toContain('<redacted>')
+    expect(prepared.timeline).toContain('"failureCode":"SERVER"')
     expect(prepared.truncated).toBe(false)
   })
 
-  it('detects route switches, orphaned tools, and unfinished lifecycle spans', () => {
+  it('keeps failed-attempt usage and replaces successful provisional usage with final usage', () => {
     const prepared = prepareTrajectory([
-      event(0, 0, 'request/context', { provider: 'first', model: 'model-a' }),
-      event(1, 1_000, 'turn/start', { turn: 3 }),
-      event(2, 2_000, 'step/start', { turn: 3, step: 1 }),
-      event(3, 3_000, 'tool/call', { turn: 3, step: 1, callId: 'missing-result', name: 'read', arguments: '{}' }),
-      event(4, 4_000, 'request/header', { header: { config: { provider: 'second', model: 'model-b' } } }),
-      event(5, 5_000, 'tool/result', {
-        turn: 3,
-        step: 1,
-        message: { role: 'user', source: { kind: 'tool', callId: 'missing-call' }, content: [] },
-      }),
-      event(6, 61_000, 'session/checkpoint', {}),
-    ])
-
-    expect(prepared.metrics).toMatchObject({
-      modelSwitches: 1,
-      toolCalls: 1,
-      toolResults: 1,
-      orphanToolCalls: 1,
-      orphanToolResults: 1,
-      averageToolLatencyMs: 0,
-      maxToolLatencyMs: 0,
-      openTurns: 1,
-      openSteps: 1,
-      activeDurationMs: 60_000,
-    })
-  })
-
-  it('replaces streamed usage per attempt and retains failed retry costs', () => {
-    const prepared = prepareTrajectory([
-      event(0, 0, 'assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'usage', usage: { inputTokens: 100, outputTokens: 20 } },
-      }),
-      event(1, 10_000, 'assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'usage', usage: { inputTokens: 120, outputTokens: 25 } },
-      }),
-      event(2, 20_000, 'llm/retry', { turn: 1, step: 1, retry: 1 }),
-      event(3, 60_000, 'assistant/chunk', {
-        turn: 1,
-        step: 1,
-        chunk: { type: 'usage', usage: { inputTokens: 50, outputTokens: 10 } },
+      event(0, 0, 'request/context', { provider: 'p', model: 'm' }),
+      event(1, 1, 'assistant/chunk', { turn: 2, step: 3, chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } } }),
+      event(2, 2, 'llm/retry', { turn: 2, step: 3, retry: 1, delayMs: 0, failure: { code: 'RATE_LIMIT', message: 'private' } }),
+      event(3, 3, 'llm/retry-started', { turn: 2, step: 3, retry: 1 }),
+      event(4, 4, 'assistant/chunk', { turn: 2, step: 3, chunk: { type: 'usage', usage: { inputTokens: 8, outputTokens: 1 } } }),
+      event(5, 5, 'assistant/message', {
+        turn: 2,
+        step: 3,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'private' }], source: { kind: 'model', provider: 'p2', model: 'm2' } },
+        usage: { inputTokens: 9, outputTokens: 3, cacheReadTokens: 4 },
       }),
     ])
 
-    expect(prepared.metrics.assistantRequests).toBe(2)
-    expect(prepared.metrics.omittedChunkEvents).toBe(3)
+    expect(prepared.metrics.spans).toEqual([
+      expect.objectContaining({
+        id: 'model:2:3:0', status: 'retried', provider: 'p', model: 'm', finality: 'provisional',
+        usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      }),
+      expect.objectContaining({
+        id: 'model:2:3:1', status: 'completed', provider: 'p2', model: 'm2', finality: 'authoritative',
+        usage: { uncachedInputTokens: 9, outputTokens: 3, cacheReadTokens: 4, cacheWriteTokens: 0 },
+      }),
+    ])
     expect(prepared.metrics.usage).toEqual({
-      uncachedInputTokens: 170,
-      outputTokens: 35,
+      uncachedInputTokens: 19,
+      outputTokens: 5,
+      cacheReadTokens: 4,
+      cacheWriteTokens: 0,
+    })
+    expect(prepared.metrics.retryUsage).toEqual({
+      uncachedInputTokens: 10,
+      outputTokens: 2,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
     })
-    expect(prepared.metrics.tokensPerMinute).toBe(205)
+    expect(prepared.metrics.reconciliation.status).toBe('matched')
   })
 
-  it('redacts bearer, provider keys, JWTs, and sensitive JSON fields', () => {
-    expect(redactTrajectoryText('Bearer abcdefghijkl sk-abcdefgh password=hunter2'))
-      .toBe('Bearer <redacted> sk-<redacted> password=<redacted>')
-    const prepared = prepareTrajectory([
-      event(0, 0, 'tool/call', {
-        turn: 1,
-        step: 1,
-        callId: 'call-secret',
-        name: 'shell',
-        arguments: JSON.stringify({
-          OPENAI_API_KEY: 'openai-secret',
-          'X-Api-Key': 'header-secret',
-          inputTokens: 42,
-          jwt: 'eyJabcdefgh.abcdefghij.abcdefghijk',
-        }),
-      }),
+  it('produces identical model evidence when only private payload content changes', () => {
+    const first = prepareTrajectory([
+      event(0, 0, 'user/message', { content: 'person-a@example.com', source: { name: 'team-a' } }),
+      event(1, 1, 'tool/call', { turn: 1, step: 1, callId: 'one', name: 'internal-a', arguments: '{"path":"c:/a"}' }),
     ])
-    expect(prepared.timeline).not.toContain('openai-secret')
-    expect(prepared.timeline).not.toContain('header-secret')
-    expect(prepared.timeline).not.toContain('eyJabcdefgh')
-    expect(prepared.timeline).toContain('inputTokens')
-    expect(prepared.timeline).toContain('42')
+    const second = prepareTrajectory([
+      event(0, 0, 'user/message', { content: 'person-b@example.com', source: { name: 'team-b' } }),
+      event(1, 1, 'tool/call', { turn: 1, step: 1, callId: 'two', name: 'internal-b', arguments: '{"path":"d:/b"}' }),
+    ])
+
+    expect(second).toEqual(first)
   })
 
-  it('uses the configured model through one prepared call and returns its usage', async () => {
+  it('uses the configured model with metadata-only evidence and returns its usage', async () => {
     const stream = vi.fn(async function* () {
-      yield { type: 'text-delta' as const, index: 0, text: '# Executive summary\nEvidence: seq 0-10.' }
+      yield { type: 'text-delta' as const, index: 0, text: '# Resource summary\nEvidence: seq 0-10.' }
       yield { type: 'usage' as const, usage: { inputTokens: 200, outputTokens: 40 } }
       yield { type: 'finish' as const, reason: { kind: 'stop' as const } }
     })
@@ -177,7 +141,7 @@ describe('trajectory analysis', () => {
 
     const result = await analyzeTrajectory(
       ctx,
-      SessionId('session-a'),
+      SessionId('private-session-id'),
       events,
       { provider: 'configured', model: 'audit-model' },
       'en',
@@ -189,19 +153,23 @@ describe('trajectory analysis', () => {
       model: 'audit-model',
       maxTokens: 3_000,
     }, expect.any(AbortSignal))
-    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
+    const request = stream.mock.calls[0]?.[0]
+    expect(request).toEqual(expect.objectContaining({
       provider: 'configured',
       model: 'audit-model',
-      sessionId: 'session-a',
-      system: expect.stringContaining('Call chain and delegation'),
+      sessionId: 'private-session-id',
+      system: expect.stringContaining('Token reconciliation and composition'),
       messages: expect.any(Array),
     }))
+    const modelEvidence = JSON.stringify(request?.messages)
+    expect(modelEvidence).not.toContain('private-session-id')
+    expect(modelEvidence).not.toContain('private-')
     expect(result).toMatchObject({
       schema: 'dsh-token-usage/trajectory-analysis-v1',
-      sessionId: 'session-a',
+      sessionId: 'private-session-id',
       model: { provider: 'configured', model: 'audit-model' },
       analysisUsage: { uncachedInputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },
-      report: '# Executive summary\nEvidence: seq 0-10.',
+      report: '# Resource summary\nEvidence: seq 0-10.',
     })
   })
 })

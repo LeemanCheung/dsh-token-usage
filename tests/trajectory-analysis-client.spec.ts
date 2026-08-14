@@ -1,58 +1,76 @@
 import { describe, expect, it } from 'vitest'
 import { trajectoryAnalysisOf } from '../src/client/trajectory-analysis-client.ts'
 
-const baseReport = {
-  schema: 'dsh-token-usage/trajectory-analysis-v1',
-  sessionId: 'session-a',
-  generatedAt: '2026-08-14T12:00:00.000Z',
-  model: { provider: 'provider-a', model: 'model-a' },
-  truncated: false,
-  metrics: {
-    eventCount: 10,
-    includedEventCount: 8,
-    omittedChunkEvents: 2,
-    turnCount: 1,
-    completedTurns: 1,
-    failedTurns: 0,
-    stepCount: 1,
-    assistantRequests: 1,
-    toolCalls: 1,
-    toolErrors: 0,
-    retries: 0,
-    compactions: 0,
-    approvalsAsked: 0,
-    approvalsRejected: 0,
-    subagents: 0,
-    durationMs: 60_000,
-    eventsPerMinute: 10,
-    tokensPerMinute: 100,
-    usage: { uncachedInputTokens: 60, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },
-  },
-  report: '# Report',
+const zero = { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+
+function report() {
+  return {
+    schema: 'dsh-token-usage/trajectory-analysis-v1',
+    sessionId: 'session-a',
+    generatedAt: '2026-08-15T00:00:00.000Z',
+    model: { provider: 'provider', model: 'model' },
+    truncated: false,
+    metrics: {
+      eventCount: 2,
+      includedEventCount: 2,
+      omittedChunkEvents: 0,
+      omittedContentEvents: 1,
+      turnCount: 1,
+      completedTurns: 1,
+      failedTurns: 0,
+      stepCount: 1,
+      assistantRequests: 1,
+      toolCalls: 0,
+      toolErrors: 0,
+      retries: 0,
+      compactions: 0,
+      approvalsAsked: 0,
+      approvalsRejected: 0,
+      subagents: 0,
+      durationMs: 1,
+      eventsPerMinute: 120_000,
+      tokensPerMinute: 600_000,
+      usage: { ...zero, uncachedInputTokens: 10 },
+      retryUsage: zero,
+      spans: [{
+        id: 'model:1:1:0',
+        kind: 'model',
+        seq: 1,
+        turn: 1,
+        step: 1,
+        attempt: 0,
+        provider: 'provider',
+        model: 'model',
+        status: 'completed',
+        valueKind: 'actual',
+        finality: 'authoritative',
+        usage: { ...zero, uncachedInputTokens: 10 },
+      }],
+      largestSpanId: 'model:1:1:0',
+      reconciliation: {
+        status: 'matched',
+        providerUsage: { ...zero, uncachedInputTokens: 10 },
+        attributedUsage: { ...zero, uncachedInputTokens: 10 },
+        delta: zero,
+      },
+    },
+    report: '# Resource summary',
+  }
 }
 
 describe('trajectory analysis client decoder', () => {
-  it('defaults additive deterministic metrics from an older v1 Host to zero', () => {
-    const decoded = trajectoryAnalysisOf(baseReport)
-
-    expect(decoded?.metrics).toMatchObject({
-      toolResults: 0,
-      orphanToolCalls: 0,
-      orphanToolResults: 0,
-      averageToolLatencyMs: 0,
-      maxToolLatencyMs: 0,
-      modelSwitches: 0,
-      openTurns: 0,
-      openSteps: 0,
-      activeDurationMs: 0,
-      activeTokensPerMinute: 0,
+  it('preserves metadata spans and reconciliation', () => {
+    expect(trajectoryAnalysisOf(report())?.metrics).toMatchObject({
+      omittedContentEvents: 1,
+      largestSpanId: 'model:1:1:0',
+      spans: [expect.objectContaining({ id: 'model:1:1:0', valueKind: 'actual' })],
+      reconciliation: { status: 'matched', delta: zero },
     })
   })
 
-  it('rejects malformed additive metric values at the wire boundary', () => {
-    expect(trajectoryAnalysisOf({
-      ...baseReport,
-      metrics: { ...baseReport.metrics, orphanToolCalls: -1 },
-    })).toBeUndefined()
+  it('rejects reports that omit reconciliation evidence', () => {
+    const value = report()
+    delete (value.metrics as Partial<typeof value.metrics>).reconciliation
+    expect(trajectoryAnalysisOf(value)).toBeUndefined()
   })
 })

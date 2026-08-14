@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { TOKEN_USAGE_SETTINGS_NAMESPACE, type TokenUsageBudgetSettings } from './budget-settings.ts'
 import { tokenUsageRecorderProjectionDefinition } from './projection.ts'
+import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from './rpc.ts'
 import { analyzeTrajectory } from './trajectory-analysis.ts'
 import { analyzeTokenUsage } from './usage-analysis.ts'
 import type {
@@ -26,18 +27,20 @@ import type {
 /** Cordis plugin name. */
 export const name = 'token-usage-recorder'
 
-/** Host services required for projection registration and historical replay. */
+/** Host services required for core projection registration and historical replay. */
 export const inject = [
   'sessionProjections',
   'sessionProjectionCache',
   'sessionQuery',
   'sessions',
-  'sessionPersistence',
-  'settings',
-  'connection',
-  'llm',
-  'agentDefaultModel',
 ]
+
+/** Optional settings and analysis surface that waits independently of core accounting. */
+const auxiliaryPlugin = {
+  name: 'token-usage-auxiliary',
+  inject: ['sessionPersistence', 'settings', 'connection', 'llm', 'agentDefaultModel'],
+  apply: installRpc,
+}
 
 const BUDGET_NAMESPACE = settingsNamespace(TOKEN_USAGE_SETTINGS_NAMESPACE)
 const BudgetSettingsSchema: z<TokenUsageBudgetSettings> = z.object({
@@ -210,12 +213,12 @@ function installRpc(ctx: Context): void {
   const budget = ctx.settings.register(BUDGET_NAMESPACE, BudgetSettingsSchema)
   ctx.effect(() => {
     const lifecycle = new AbortController()
-    const dispose = ctx.connection.rpc.handle('/token-usage', async (endpoint, payload, signal) => {
+    const dispose = ctx.connection.rpc.handle(TOKEN_USAGE_RPC_CHANNEL, async (endpoint, payload, signal) => {
       const operationSignal = AbortSignal.any([signal, lifecycle.signal])
       switch (endpoint) {
-      case 'budget/read':
+      case TOKEN_USAGE_RPC_ENDPOINT.budgetRead:
         return { ok: true, value: budget.get() }
-      case 'budget/write': {
+      case TOKEN_USAGE_RPC_ENDPOINT.budgetWrite: {
         const rolling30DayBudget = budgetFrom(payload)
         if (rolling30DayBudget === undefined) {
           return budgetError('Budget must be a non-negative whole Token count.')
@@ -255,7 +258,7 @@ function installRpc(ctx: Context): void {
           return rpcError(error instanceof Error ? error.message : String(error))
         }
       }
-      case 'trajectory/analyze': {
+      case TOKEN_USAGE_RPC_ENDPOINT.trajectoryAnalyze: {
         const request = trajectoryAnalysisRequest(payload)
         if (request === undefined) return rpcError('A valid session id, selected model, and language are required.')
         try {
@@ -323,7 +326,7 @@ async function warmHistory(ctx: Context, signal: AbortSignal): Promise<void> {
 /** Register the projection and start cancellable fail-soft history warming. */
 export function apply(ctx: Context): void {
   ctx.sessionProjections.register(tokenUsageRecorderProjectionDefinition)
-  installRpc(ctx)
+  ctx.plugin(auxiliaryPlugin)
   ctx.effect(() => {
     const controller = new AbortController()
     const operation = warmHistory(ctx, controller.signal)
