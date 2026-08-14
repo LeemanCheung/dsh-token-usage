@@ -230,7 +230,7 @@ function installRpc(ctx: Context): void {
         }
         return { ok: true, value: budget.get() }
       }
-      case 'analysis/models': {
+      case TOKEN_USAGE_RPC_ENDPOINT.analysisModels: {
         const llm = ctx.get('llm')
         if (llm === undefined) return rpcError('Analysis requires an available model service.')
         const models = await analysisModels({ llm, logger: ctx.logger })
@@ -245,7 +245,7 @@ function installRpc(ctx: Context): void {
           },
         }
       }
-      case 'usage/analyze': {
+      case TOKEN_USAGE_RPC_ENDPOINT.usageAnalyze: {
         const request = usageAnalysisRequest(payload)
         if (request === undefined) return rpcError('A valid aggregate Token usage payload, selected model, and language are required.')
         try {

@@ -25,7 +25,20 @@ describe('aggregate Token usage analysis', () => {
 
     const evidence = usageAnalysisEvidence(input)
 
-    expect(evidence.models.map(model => model.provider)).toEqual(['large', 'small'])
+    expect(evidence.models.map(model => [model.provider, model.model])).toEqual([
+      ['route', 'route-1'],
+      ['route', 'route-2'],
+    ])
+    expect(JSON.stringify(evidence)).not.toContain('large')
+    expect(JSON.stringify(evidence)).not.toContain('small')
+    expect(usageAnalysisEvidence({
+      ...input,
+      models: input.models.map((model, index) => ({
+        ...model,
+        provider: `private-tenant-${index}`,
+        model: `private-model-${index}`,
+      })),
+    })).toEqual(evidence)
     expect(evidence.days.map(day => day.date)).toEqual(['2026-08-12', '2026-08-14'])
     evidence.models[0]!.usage.outputTokens = 99
     expect(input.models[1]!.usage.outputTokens).toBe(10)
@@ -60,7 +73,10 @@ describe('aggregate Token usage analysis', () => {
       system: expect.stringContaining('Prioritized optimization recommendations'),
     }))
     const request = stream.mock.calls[0]?.[0] as { messages: Array<{ content: Array<{ text: string }> }> }
-    expect(request.messages[0]?.content[0]?.text).not.toContain('sessionId')
+    const evidenceRequest = request.messages[0]?.content[0]?.text
+    expect(evidenceRequest).not.toContain('sessionId')
+    expect(evidenceRequest).not.toContain('provider-a')
+    expect(evidenceRequest).not.toContain('model-a')
     expect(result).toMatchObject({
       schema: 'dsh-token-usage/usage-analysis-v1',
       model: { provider: 'chosen', model: 'finops-model' },

@@ -8,7 +8,7 @@ import type {
   TokenUsageAnalysisModelSelection,
   TokenUsageBuckets,
 } from '../types.ts'
-import { TOKEN_USAGE_RPC_CHANNEL } from './budget-controller.ts'
+import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from '../rpc.ts'
 
 /** One server-provided selectable-model catalog and its eligible default route. */
 export interface TokenUsageAnalysisModelCatalog {
@@ -92,7 +92,7 @@ export async function requestAnalysisModels(
   signal: AbortSignal,
 ): Promise<TokenUsageAnalysisModelCatalog> {
   if (!connection.isLoopback) throw new Error('AI analysis is available only from the local DSH page.')
-  const result = await connection.rpc.call(TOKEN_USAGE_RPC_CHANNEL, 'analysis/models', {}, signal)
+  const result = await connection.rpc.call(TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT.analysisModels, {}, signal)
   if (!result.ok) throw new Error(result.error.message)
   const catalog = analysisModelCatalogOf(result.value)
   if (catalog === undefined) throw new Error('The Host returned an invalid integrated-model catalog.')
@@ -110,7 +110,7 @@ export async function requestTokenUsageAnalysis(
   if (!connection.isLoopback) throw new Error('AI analysis is available only from the local DSH page.')
   const result = await connection.rpc.call(
     TOKEN_USAGE_RPC_CHANNEL,
-    'usage/analyze',
+    TOKEN_USAGE_RPC_ENDPOINT.usageAnalyze,
     { input, model, language },
     signal,
   )

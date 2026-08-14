@@ -5,5 +5,7 @@ export const TOKEN_USAGE_RPC_CHANNEL = '/token-usage'
 export const TOKEN_USAGE_RPC_ENDPOINT = {
   budgetRead: 'budget/read',
   budgetWrite: 'budget/write',
+  analysisModels: 'analysis/models',
+  usageAnalyze: 'usage/analyze',
   trajectoryAnalyze: 'trajectory/analyze',
 } as const
