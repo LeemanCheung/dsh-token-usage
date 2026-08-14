@@ -195,27 +195,35 @@ interface AnalysisModelCatalog {
 
 /** Stop awaiting an API that cannot consume AbortSignal when its owning lifecycle ends. */
 function awaitWithAbort<T>(start: () => Promise<T>, signal: AbortSignal): Promise<T> {
-  signal.throwIfAborted()
-  const operation = start()
   return new Promise<T>((resolve, reject) => {
-    const aborted = (): void => {
+    let settled = false
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return
+      settled = true
       signal.removeEventListener('abort', aborted)
-      try {
-        signal.throwIfAborted()
-      } catch (error) {
-        reject(error)
-      }
+      reject(error)
+    }
+    const aborted = (): void => { rejectOnce(signal.reason) }
+    if (signal.aborted) {
+      aborted()
+      return
     }
     signal.addEventListener('abort', aborted, { once: true })
+    let operation: Promise<T>
+    try {
+      operation = start()
+    } catch (error) {
+      rejectOnce(error)
+      return
+    }
     void operation.then(
       value => {
+        if (settled) return
+        settled = true
         signal.removeEventListener('abort', aborted)
         resolve(value)
       },
-      error => {
-        signal.removeEventListener('abort', aborted)
-        reject(error)
-      },
+      rejectOnce,
     )
   })
 }
