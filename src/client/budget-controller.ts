@@ -46,6 +46,7 @@ export class TokenUsageBudgetController {
 
   private generation = 0
   private disposed = false
+  private writeQueue: Promise<void> = Promise.resolve()
 
   /** @param connection - client connection carrying the loopback RPC channel. */
   constructor(private readonly connection: ConnectionHandle) {}
@@ -68,14 +69,22 @@ export class TokenUsageBudgetController {
     }
   }
 
-  /** Persist one whole-token rolling budget. Zero disables the budget. */
-  async setBudget(rolling30DayBudget: number): Promise<void> {
-    if (!Number.isSafeInteger(rolling30DayBudget) || rolling30DayBudget < 0) return
+  /** Persist one whole-token rolling budget. Writes are serialized so failures retain the latest durable value. */
+  setBudget(rolling30DayBudget: number): Promise<void> {
+    if (!Number.isSafeInteger(rolling30DayBudget) || rolling30DayBudget < 0) return Promise.resolve()
+    const operation = this.writeQueue.then(() => this.writeBudget(rolling30DayBudget))
+    this.writeQueue = operation.catch(() => {})
+    return operation
+  }
+
+  /** Execute one queued budget write against the latest published durable value. */
+  private async writeBudget(rolling30DayBudget: number): Promise<void> {
+    if (this.disposed) return
     const previous = this.store.getSnapshot()
     const fallback = previous.status === 'ready' ? previous : { status: 'unavailable' as const, budget: 0 }
     const generation = ++this.generation
     if (!this.connection.isLoopback) {
-      this.publish(generation, { status: 'unavailable', budget: 0 })
+      this.publish(generation, fallback)
       return
     }
     try {

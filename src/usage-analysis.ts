@@ -98,7 +98,7 @@ function systemPrompt(language: string): string {
 
 /** Analyze bounded aggregate Token usage through one user-selected model route. */
 export async function analyzeTokenUsage(
-  ctx: Context,
+  ctx: Pick<Context, 'llm'>,
   input: TokenUsageAnalysisInput,
   selection: TokenUsageAnalysisModelSelection,
   language: string,

@@ -113,6 +113,20 @@ describe('trajectory analysis', () => {
     expect(prepared.metrics.reconciliation.status).toBe('matched')
   })
 
+  it('counts a usage-less assistant response without fabricating a Token span', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'private' }] },
+      }),
+    ])
+
+    expect(prepared.metrics.assistantRequests).toBe(1)
+    expect(prepared.metrics.spans).toEqual([])
+    expect(prepared.metrics.reconciliation.status).toBe('matched')
+  })
+
   it('exposes a nonzero delta instead of forcing unattributed provider usage to match', () => {
     const prepared = prepareTrajectory([
       event(0, 0, 'assistant/chunk', {

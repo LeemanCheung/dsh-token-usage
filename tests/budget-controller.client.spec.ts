@@ -40,6 +40,30 @@ describe('TokenUsageBudgetController', () => {
     expect(controller.store.getSnapshot()).toEqual({ status: 'ready', budget: 300 })
   })
 
+  it('serializes overlapping writes so a later failure keeps the last durable success', async () => {
+    let resolveFirst: ((value: { ok: true; value: { rolling30DayBudget: number } }) => void) | undefined
+    const call = vi.fn(async (_channel: string, endpoint: string, payload: unknown) => {
+      if (endpoint === 'budget/read') return { ok: true as const, value: { rolling30DayBudget: 100 } }
+      const budget = (payload as { rolling30DayBudget: number }).rolling30DayBudget
+      if (budget === 200) {
+        return await new Promise<{ ok: true; value: { rolling30DayBudget: number } }>((resolve) => { resolveFirst = resolve })
+      }
+      throw new Error('temporary failure')
+    })
+    const controller = new TokenUsageBudgetController({ isLoopback: true, rpc: { call } } as never)
+    await controller.load()
+
+    const first = controller.setBudget(200)
+    const second = controller.setBudget(300)
+    await vi.waitFor(() => { expect(resolveFirst).toBeTypeOf('function') })
+    expect(call).toHaveBeenCalledTimes(2)
+    resolveFirst?.({ ok: true, value: { rolling30DayBudget: 200 } })
+
+    await Promise.all([first, second])
+    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', budget: 200 })
+    expect(call).toHaveBeenCalledTimes(3)
+  })
+
   it('does not call the Host for an invalid local budget', async () => {
     const call = vi.fn()
     const controller = new TokenUsageBudgetController({ isLoopback: true, rpc: { call } } as never)

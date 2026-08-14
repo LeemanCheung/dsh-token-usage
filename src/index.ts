@@ -35,10 +35,10 @@ export const inject = [
   'sessions',
 ]
 
-/** Optional settings and analysis surface that waits independently of core accounting. */
+/** Budget RPC surface; trajectory-only services are resolved lazily per request. */
 const auxiliaryPlugin = {
   name: 'token-usage-auxiliary',
-  inject: ['sessionPersistence', 'settings', 'connection', 'llm', 'agentDefaultModel'],
+  inject: ['settings', 'connection'],
   apply: installRpc,
 }
 
@@ -174,7 +174,7 @@ function usageAnalysisRequest(payload: unknown): {
 }
 
 /** List every registered model the user may explicitly select for an auxiliary analysis. */
-async function analysisModels(ctx: Context): Promise<TokenUsageAnalysisModel[]> {
+async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>): Promise<TokenUsageAnalysisModel[]> {
   const groups = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
     try {
       const models = await ctx.llm.listModels(provider.id)
@@ -231,13 +231,15 @@ function installRpc(ctx: Context): void {
         return { ok: true, value: budget.get() }
       }
       case 'analysis/models': {
-        const models = await analysisModels(ctx)
-        const defaultSelection = ctx.agentDefaultModel.currentSelection()
+        const llm = ctx.get('llm')
+        if (llm === undefined) return rpcError('Analysis requires an available model service.')
+        const models = await analysisModels({ llm, logger: ctx.logger })
+        const defaultSelection = ctx.get('agentDefaultModel')?.currentSelection()
         return {
           ok: true,
           value: {
             models,
-            ...isKnownModel(models, defaultSelection) ? {
+            ...defaultSelection !== undefined && isKnownModel(models, defaultSelection) ? {
               default: { provider: defaultSelection.provider, model: defaultSelection.model },
             } : {},
           },
@@ -247,11 +249,13 @@ function installRpc(ctx: Context): void {
         const request = usageAnalysisRequest(payload)
         if (request === undefined) return rpcError('A valid aggregate Token usage payload, selected model, and language are required.')
         try {
-          const models = await analysisModels(ctx)
+          const llm = ctx.get('llm')
+          if (llm === undefined) return rpcError('Usage analysis requires an available model service.')
+          const models = await analysisModels({ llm, logger: ctx.logger })
           if (!isKnownModel(models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           return {
             ok: true,
-            value: await analyzeTokenUsage(ctx, request.input, request.model, request.language, operationSignal),
+            value: await analyzeTokenUsage({ llm }, request.input, request.model, request.language, operationSignal),
           }
         } catch (error) {
           if (operationSignal.aborted) throw error
@@ -262,15 +266,28 @@ function installRpc(ctx: Context): void {
         const request = trajectoryAnalysisRequest(payload)
         if (request === undefined) return rpcError('A valid session id, selected model, and language are required.')
         try {
-          const models = await analysisModels(ctx)
+          const llm = ctx.get('llm')
+          if (llm === undefined) return rpcError('Trajectory analysis requires an available model service.')
+          const models = await analysisModels({ llm, logger: ctx.logger })
           if (!isKnownModel(models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           const live = ctx.sessions.get(request.sessionId)
+          const persistence = live === undefined ? ctx.get('sessionPersistence') : undefined
+          if (live === undefined && persistence === undefined) {
+            return rpcError('Trajectory analysis cannot read cold sessions because persistence is unavailable.')
+          }
           const events = live?.events
-            ?? (await ctx.sessionPersistence.inspect(request.sessionId, operationSignal)).events
+            ?? (await persistence!.inspect(request.sessionId, operationSignal)).events
           if (events.length === 0) return rpcError('This session has no trajectory events to analyze.')
           return {
             ok: true,
-            value: await analyzeTrajectory(ctx, request.sessionId, events, request.model, request.language, operationSignal),
+            value: await analyzeTrajectory(
+              { llm },
+              request.sessionId,
+              events,
+              request.model,
+              request.language,
+              operationSignal,
+            ),
           }
         } catch (error) {
           if (operationSignal.aborted) throw error

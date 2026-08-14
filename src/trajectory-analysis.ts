@@ -191,6 +191,7 @@ function safeEventRow(
 export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTrajectory {
   const firstTime = events[0]?.time ?? 0
   const attempts = new Map<string, number>()
+  const assistantRequestIds = new Set<string>()
   const spans = new Map<string, TrajectoryUsageSpan>()
   const routeAliases = new Map<string, Route>()
   const rows: string[] = []
@@ -227,6 +228,7 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
     const key = stepKey(data.turn, data.step)
     const attempt = attempts.get(key) ?? 0
     const id = `model:${data.turn}:${data.step}:${attempt}`
+    assistantRequestIds.add(id)
     const selectedRoute = aliasRoute(messageRoute(data, route))
     const previous = spans.get(id)
     const next: TrajectoryUsageSpan = {
@@ -281,6 +283,7 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
         else if (typeof data.turn === 'number' && typeof data.step === 'number') {
           const key = stepKey(data.turn, data.step)
           const id = `model:${data.turn}:${data.step}:${attempts.get(key) ?? 0}`
+          assistantRequestIds.add(id)
           const previous = spans.get(id)
           if (previous !== undefined) spans.set(id, { ...previous, status: 'completed' })
         }
@@ -395,7 +398,7 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
     completedTurns,
     failedTurns,
     stepCount,
-    assistantRequests: usageSpans.filter(span => span.kind === 'model').length,
+    assistantRequests: assistantRequestIds.size,
     toolCalls,
     toolErrors,
     retries,
@@ -454,7 +457,7 @@ function systemPrompt(language: string): string {
 
 /** Analyze one immutable trajectory through a user-selected registered model route. */
 export async function analyzeTrajectory(
-  ctx: Context,
+  ctx: Pick<Context, 'llm'>,
   sessionId: SessionId,
   events: readonly SessionEvent[],
   selection: TokenUsageAnalysisModelSelection,

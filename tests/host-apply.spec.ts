@@ -16,6 +16,7 @@ function rpcServices() {
       plugin.apply(this)
       return {}
     }),
+    get: vi.fn(function (this: Record<string, unknown>, service: string) { return this[service] }),
   }
 }
 
