@@ -1243,6 +1243,7 @@ export function TokenUsageSection({
                 }}
               />
             </div>
+            <p className={css.analysisPrivacy}>{t('analysisPrivacy')}</p>
             {sessionOpenError === undefined ? null : <p className={css.analysisErrorText}>{t('openSessionFailed', { message: sessionOpenError })}</p>}
             {filteredSessions.length === 0 ? <p className={css.status}>{t('emptySearch')}</p> : (
               <div className={css.tableWrap}>

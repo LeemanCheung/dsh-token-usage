@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { isReplacementSurfaceEvent, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-llm-retry'
@@ -191,6 +191,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
     lastAssistant: null,
   }),
   apply: (state, event) => {
+    if (isReplacementSurfaceEvent(event)) return state
     if (event.type === 'request/context') {
       const route = { provider: event.data.provider, model: event.data.model }
       if (state.route?.provider === route.provider && state.route.model === route.model) return state
@@ -297,7 +298,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
   }),
-  stateVersion: 5,
+  stateVersion: 6,
 }
 
 /** Fold one complete event sequence through the canonical persistent projection reducer. */

@@ -83,7 +83,7 @@ dsh plugin --profile web add ./dsh-token-usage
 | 压缩 Token | 所有 `compaction/summary` provider usage 的四个 bucket 之和；与普通模型尝试分别计数 |
 | 每次模型尝试 Token | `(总 Token - 压缩 Token) / assistantRequests`；重试是独立尝试。若存在未归因旧用量，因缺少对应尝试次数而不显示该比率。 |
 
-同一请求步骤若先后出现流式 usage 与最终消息 usage，最终值会替换该步骤的临时值，避免重复记账；发生 `llm/retry` 后，每个重试尝试仍会被独立统计。每条 `compaction/summary` 都计为一次压缩；provider 未附 usage 时只增加次数，不虚构 Token。
+同一请求步骤若先后出现流式 usage 与最终消息 usage，最终值会替换该步骤的临时值，避免重复记账；发生 `llm/retry` 后，每个重试尝试仍会被独立统计。每条 `compaction/summary` 都计为一次压缩；provider 未附 usage 时只增加次数，不虚构 Token。带 `surfaceOp: replace` 的消息只改写可见会话表面，不代表新的模型或工具执行，因此不会重复计数。
 
 ## 📈 运行率、异常与 Agent 效率
 
@@ -154,8 +154,8 @@ dsh plugin --profile web add ./dsh-token-usage
 
 ### 输入、隐私与费用
 
-- 分析由用户显式触发，报告不写入会话日志、projection cache 或导出文件；刷新页面后不会保留。
-- 发送给模型的事件只允许：内置事件类别与序号、相对时间、turn/step、报告内 `route-N` 别名、重试序号/上限/等待、通用成功或错误状态以及 Token bucket；未知扩展事件会省略。
+- 分析由用户显式触发；会话列表在“分析轨迹”按钮之前显示模型证据范围。报告不写入会话日志、projection cache 或导出文件，刷新页面后不会保留。
+- 发送给模型的事件只允许：内置事件类别与序号、相对时间、turn/step、报告内 `route-N` 别名、重试序号/上限/等待、通用成功或错误状态、表面改写标记以及 Token bucket；未知扩展事件会省略。
 - 提示词、回复、system prompt、会话标题、原始 provider/model、工具名称/参数/结果/meta、故障代码与错误消息、路径、URL、邮箱、姓名、会话 ID、个人字段和组织字段不会进入模型证据；这是 allowlist 省略，不依赖正则脱敏。
 - 完整模型证据最多 96,000 字符；完整节点表留在本地，模型只接收最大节点、最多 16 个高消耗重试节点和有界首尾时间线，超限时插入截断标记。模型最多生成 3,000 Token。
 - 辅助调用的 provider/model 和 Token 用量显示在报告卡片中，但不会计入持久化用量 projection。

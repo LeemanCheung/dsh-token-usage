@@ -64,7 +64,7 @@ describe('tokenUsageRecorder projection', () => {
     }
 
     try {
-      expect(definition.stateVersion).toBe(5)
+      expect(definition.stateVersion).toBe(6)
       expect(ctx.sessionProjections.restoreFloor(legacyCheckpoint)).toBe(0)
       const restored = ctx.sessionProjections.restore(legacyCheckpoint, events, 0)
       expect(restored.snapshot.values.tokenUsageRecorder).toMatchObject({
@@ -83,7 +83,7 @@ describe('tokenUsageRecorder projection', () => {
           cacheWriteTokens: 0,
         },
       })
-      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 5, seq: 3 })
+      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 6, seq: 3 })
     } finally {
       unregister()
       await ctx.fiber.dispose()
@@ -415,6 +415,29 @@ describe('tokenUsageRecorder projection', () => {
       compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
       models: [{ provider: 'deepseek', model: 'deepseek-chat', compactionRequests: 1 }],
       usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    })
+  })
+
+  it('ignores surface replacements as non-execution usage', () => {
+    const original = definition.apply(definition.init(), event({
+      seq: 0,
+      time: 1,
+      type: 'assistant/chunk',
+      data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 3, outputTokens: 1 } } },
+    }))
+    const replaced = definition.apply(original, event({
+      seq: 1,
+      time: 2,
+      type: 'assistant/message',
+      surfaceOp: { op: 'replace', start: 0, end: 0 },
+      sourceEventSeqs: [0],
+      data: { turn: 1, step: 1, usage: { inputTokens: 99, outputTokens: 99 } },
+    }))
+
+    expect(replaced).toBe(original)
+    expect(definition.view(replaced)).toMatchObject({
+      assistantRequests: 1,
+      usage: { uncachedInputTokens: 3, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
     })
   })
 

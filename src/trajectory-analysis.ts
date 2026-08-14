@@ -7,7 +7,7 @@ import {
   type FinishReason,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { isReplacementSurfaceEvent, type SessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
 import { projectTokenUsage } from './projection.ts'
 import type {
   SignedTokenUsageBuckets,
@@ -78,6 +78,14 @@ function totalTokens(usage: TokenUsageBuckets): number {
   return usage.uncachedInputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
 }
 
+/** Read the provider-neutral tool-result error flag without retaining result content. */
+function toolResultIsError(data: Record<string, unknown>): boolean {
+  if (data.error !== undefined) return true
+  const message = isRecord(data.message) ? data.message : undefined
+  if (!Array.isArray(message?.content)) return false
+  return message.content.some(block => isRecord(block) && block.type === 'tool-result' && block.isError === true)
+}
+
 /** Stable step identity independent of message and tool payloads. */
 function stepKey(turn: number, step: number): string {
   return `${turn}:${step}`
@@ -124,6 +132,9 @@ function safeEventRow(
 ): string | undefined {
   const data = isRecord(event.data as unknown) ? event.data as Record<string, unknown> : {}
   const type = String(event.type)
+  if (isReplacementSurfaceEvent(event)) {
+    return JSON.stringify({ seq: event.seq, offsetMs: Math.max(0, event.time - firstTime), type: 'surface/rewrite' })
+  }
   if (!SAFE_EVENT_TYPES.has(type)) return undefined
   const location = {
     ...typeof data.turn === 'number' ? { turn: data.turn } : {},
@@ -174,8 +185,7 @@ function safeEventRow(
     return JSON.stringify({ ...base, ...outcome === undefined ? {} : { outcome } })
   }
   if (type === 'tool/result') {
-    const message = isRecord(data.message) ? data.message : undefined
-    return JSON.stringify({ ...base, error: data.error !== undefined || message?.isError === true })
+    return JSON.stringify({ ...base, error: toolResultIsError(data) })
   }
   if (type === 'approval/decided') {
     const rawOutcome = isRecord(data.outcome) ? data.outcome.kind : data.outcome
@@ -269,6 +279,12 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
   for (const event of events) {
     const type = String(event.type)
     const data = isRecord(event.data as unknown) ? event.data as Record<string, unknown> : {}
+    if (isReplacementSurfaceEvent(event)) {
+      omittedContentEvents += 1
+      const row = safeEventRow(event, firstTime, aliasRoute)
+      if (row !== undefined) rows.push(row)
+      continue
+    }
     let nextRoute: Route | undefined
     if (type === 'request/context' && typeof data.provider === 'string' && typeof data.model === 'string') {
       nextRoute = { provider: data.provider, model: data.model }
@@ -349,8 +365,7 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
       case 'tool/result': {
         toolResults += 1
         omittedContentEvents += 1
-        const message = isRecord(data.message) ? data.message : undefined
-        if (data.error !== undefined || message?.isError === true) toolErrors += 1
+        if (toolResultIsError(data)) toolErrors += 1
         const callId = toolResultCallId(data)
         if (callId !== undefined) {
           toolResultIds.add(callId)

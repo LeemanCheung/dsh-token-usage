@@ -561,6 +561,8 @@ describe('TokenUsageSection', () => {
     render(<TokenUsageSection {...props([first], analyze)} />)
 
     await waitFor(() => { expect(screen.getByLabelText('分析模型')).toBeTruthy() })
+    expect(screen.getByText('隐私：手动选择的模型只接收白名单元数据和 provider 上报 Token；不发送提示词、回复、原始 provider/model、工具名称/参数/结果、会话标题/ID 或个人与组织字段。')).toBeTruthy()
+    expect(analyze).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))
 
     expect(screen.getByText('正在分析“主要会话”的元数据轨迹…')).toBeTruthy()

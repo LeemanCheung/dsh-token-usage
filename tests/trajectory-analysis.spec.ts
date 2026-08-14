@@ -28,8 +28,7 @@ const events = [
     message: {
       role: 'user',
       source: { kind: 'tool', callId: 'private-call' },
-      content: 'private-result',
-      isError: true,
+      content: [{ type: 'tool-result', toolCallId: 'private-call', content: [{ type: 'text', text: 'private-result' }], isError: true }],
     },
   }),
   event(6, 35_000, 'llm/retry', { turn: 1, step: 1, retry: 1, delayMs: 500, failure: { code: 'SERVER', message: 'private-error' } }),
@@ -119,6 +118,40 @@ describe('trajectory analysis', () => {
       openSteps: 1,
       activeDurationMs: 60_000,
     })
+    expect(prepared.timeline).not.toContain('private-')
+  })
+
+  it('records a surface rewrite without recounting the replaced tool result', () => {
+    const replacement = {
+      ...event(2, 2, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: {
+          role: 'user',
+          source: { kind: 'tool', callId: 'private-call' },
+          content: [{ type: 'tool-result', toolCallId: 'private-call', content: [], isError: true }],
+        },
+      }),
+      surfaceOp: { op: 'replace', start: 1, end: 1 },
+      sourceEventSeqs: [1],
+    } as SessionEvent
+    const prepared = prepareTrajectory([
+      event(0, 0, 'tool/call', { turn: 1, step: 1, callId: 'private-call', name: 'private-tool', arguments: '{}' }),
+      event(1, 1, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: {
+          role: 'user',
+          source: { kind: 'tool', callId: 'private-call' },
+          content: [{ type: 'tool-result', toolCallId: 'private-call', content: [], isError: false }],
+        },
+      }),
+      replacement,
+    ])
+
+    expect(prepared.metrics).toMatchObject({ toolCalls: 1, toolResults: 1, toolErrors: 0 })
+    expect(prepared.timeline.match(/"type":"tool\/result"/g)).toHaveLength(1)
+    expect(prepared.timeline).toContain('"type":"surface/rewrite"')
     expect(prepared.timeline).not.toContain('private-')
   })
 
