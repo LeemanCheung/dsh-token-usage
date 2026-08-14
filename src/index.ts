@@ -193,14 +193,40 @@ interface AnalysisModelCatalog {
   failures: TokenUsageAnalysisCatalogFailure[]
 }
 
+/** Stop awaiting an API that cannot consume AbortSignal when its owning lifecycle ends. */
+function awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const aborted = (): void => {
+      signal.removeEventListener('abort', aborted)
+      try {
+        signal.throwIfAborted()
+      } catch (error) {
+        reject(error)
+      }
+    }
+    signal.addEventListener('abort', aborted, { once: true })
+    void operation.then(
+      value => {
+        signal.removeEventListener('abort', aborted)
+        resolve(value)
+      },
+      error => {
+        signal.removeEventListener('abort', aborted)
+        reject(error)
+      },
+    )
+  })
+}
+
 /** List selectable routes without one unavailable provider blocking healthy providers. */
-async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>): Promise<AnalysisModelCatalog> {
+async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>, signal: AbortSignal): Promise<AnalysisModelCatalog> {
   const models: TokenUsageAnalysisModel[] = []
   const failures: TokenUsageAnalysisCatalogFailure[] = []
   const seen = new Set<string>()
   for (const provider of ctx.llm.listProviders()) {
     try {
-      const listed = await ctx.llm.listModels(provider.id)
+      const listed = await awaitWithAbort(ctx.llm.listModels(provider.id), signal)
       for (const model of listed) {
         const key = `${provider.id}\u0000${model.id}`
         if (seen.has(key)) continue
@@ -213,6 +239,7 @@ async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>): Promise<Ana
         })
       }
     } catch (error) {
+      signal.throwIfAborted()
       ctx.logger.warn(`token usage: failed to list analysis models for "${provider.id}": ${String(error)}`)
       failures.push({ provider: provider.id, providerName: provider.name })
     }
@@ -265,7 +292,7 @@ function installRpc(ctx: Context): void {
         const runtime = analysisRuntime
         if (runtime?.llm === undefined) return rpcError('Analysis requires an available model service.')
         const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
-        const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger })
+        const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger }, analysisSignal)
         analysisSignal.throwIfAborted()
         const defaultSelection = ctx.get('agentDefaultModel')?.currentSelection()
         return {
