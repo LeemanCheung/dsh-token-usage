@@ -1,5 +1,7 @@
 # dsh-token-usage
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 `dsh-token-usage` 是一个 DSH Host + Web Cordis 插件，用持久会话日志生成 Token 使用记录，并在设置中提供统计页。
 
 ## 功能
