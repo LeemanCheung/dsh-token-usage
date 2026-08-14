@@ -1,7 +1,12 @@
 /** Client decoder and loopback request for configured-model trajectory analysis. */
 
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-import type { TokenUsageBuckets, TrajectoryAnalysis, TrajectoryMetrics } from '../types.ts'
+import type {
+  TokenUsageAnalysisModelSelection,
+  TokenUsageBuckets,
+  TrajectoryAnalysis,
+  TrajectoryMetrics,
+} from '../types.ts'
 import { TOKEN_USAGE_RPC_CHANNEL } from './budget-controller.ts'
 
 /** Return whether a wire value is an object. */
@@ -63,6 +68,7 @@ export function trajectoryAnalysisOf(value: unknown): TrajectoryAnalysis | undef
 export async function requestTrajectoryAnalysis(
   connection: ConnectionHandle,
   sessionId: string,
+  model: TokenUsageAnalysisModelSelection,
   language: string,
   signal: AbortSignal,
 ): Promise<TrajectoryAnalysis> {
@@ -70,7 +76,7 @@ export async function requestTrajectoryAnalysis(
   const result = await connection.rpc.call(
     TOKEN_USAGE_RPC_CHANNEL,
     'trajectory/analyze',
-    { sessionId, language },
+    { sessionId, model, language },
     signal,
   )
   if (!result.ok) throw new Error(result.error.message)

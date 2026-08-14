@@ -13,7 +13,15 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { TOKEN_USAGE_SETTINGS_NAMESPACE, type TokenUsageBudgetSettings } from './budget-settings.ts'
 import { tokenUsageRecorderProjectionDefinition } from './projection.ts'
 import { analyzeTrajectory } from './trajectory-analysis.ts'
-import type {} from './types.ts'
+import { analyzeTokenUsage } from './usage-analysis.ts'
+import type {
+  DailyTokenUsageRecord,
+  ModelTokenUsageRecord,
+  TokenUsageAnalysisInput,
+  TokenUsageAnalysisModel,
+  TokenUsageAnalysisModelSelection,
+  TokenUsageBuckets,
+} from './types.ts'
 
 /** Cordis plugin name. */
 export const name = 'token-usage-recorder'
@@ -59,13 +67,142 @@ function budgetError(message: string) {
   }
 }
 
+/** Return whether one wire value is a plain JSON record. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Read one bounded string from a client wire record. */
+function text(value: unknown, maximum: number, allowEmpty = false): string | undefined {
+  return typeof value === 'string' && value.length <= maximum && (allowEmpty || value.length > 0) ? value : undefined
+}
+
+/** Read one non-negative whole Token count from the client wire. */
+function count(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
+
+/** Read exactly four detached Token buckets from the client wire. */
+function usageFrom(payload: unknown): TokenUsageBuckets | undefined {
+  if (!isRecord(payload)) return undefined
+  const uncachedInputTokens = count(payload.uncachedInputTokens)
+  const outputTokens = count(payload.outputTokens)
+  const cacheReadTokens = count(payload.cacheReadTokens)
+  const cacheWriteTokens = count(payload.cacheWriteTokens)
+  if (uncachedInputTokens === undefined || outputTokens === undefined
+    || cacheReadTokens === undefined || cacheWriteTokens === undefined) return undefined
+  return { uncachedInputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }
+}
+
+/** Read one detached model aggregate from the client wire. */
+function modelUsageFrom(payload: unknown): ModelTokenUsageRecord | undefined {
+  if (!isRecord(payload)) return undefined
+  const provider = text(payload.provider, 256, true)
+  const model = text(payload.model, 256, true)
+  const assistantRequests = count(payload.assistantRequests)
+  const compactionRequests = count(payload.compactionRequests)
+  const usage = usageFrom(payload.usage)
+  if (provider === undefined || model === undefined || assistantRequests === undefined || compactionRequests === undefined || usage === undefined) return undefined
+  return { provider, model, assistantRequests, compactionRequests, usage }
+}
+
+/** Read one UTC calendar-day aggregate from the client wire. */
+function dailyUsageFrom(payload: unknown): DailyTokenUsageRecord | undefined {
+  if (!isRecord(payload)) return undefined
+  const date = text(payload.date, 10)
+  const usage = usageFrom(payload.usage)
+  if (date === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(date) || usage === undefined) return undefined
+  const parsed = new Date(`${date}T00:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return undefined
+  return { date, usage }
+}
+
+/** Read one model route selected from the server-provided integrated-model catalog. */
+function modelSelectionFrom(payload: unknown): TokenUsageAnalysisModelSelection | undefined {
+  if (!isRecord(payload)) return undefined
+  const provider = text(payload.provider, 256)
+  const model = text(payload.model, 256)
+  return provider === undefined || model === undefined ? undefined : { provider, model }
+}
+
 /** Read and validate one trajectory-analysis request from the private wire. */
-function analysisRequest(payload: unknown): { sessionId: SessionId; language: string } | undefined {
-  if (typeof payload !== 'object' || payload === null) return undefined
-  const { sessionId, language } = payload as { sessionId?: unknown; language?: unknown }
-  if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 256) return undefined
-  if (typeof language !== 'string' || language.length === 0 || language.length > 32) return undefined
-  return { sessionId: SessionId(sessionId), language }
+function trajectoryAnalysisRequest(payload: unknown): {
+  sessionId: SessionId
+  language: string
+  model: TokenUsageAnalysisModelSelection
+} | undefined {
+  if (!isRecord(payload)) return undefined
+  const sessionId = text(payload.sessionId, 256)
+  const language = text(payload.language, 32)
+  const model = modelSelectionFrom(payload.model)
+  if (sessionId === undefined || language === undefined || model === undefined) return undefined
+  return { sessionId: SessionId(sessionId), language, model }
+}
+
+/** Read and validate one aggregate-only Token usage analysis request. */
+function usageAnalysisRequest(payload: unknown): {
+  input: TokenUsageAnalysisInput
+  language: string
+  model: TokenUsageAnalysisModelSelection
+} | undefined {
+  if (!isRecord(payload)) return undefined
+  const language = text(payload.language, 32)
+  const model = modelSelectionFrom(payload.model)
+  const input = payload.input
+  if (language === undefined || model === undefined || !isRecord(input)) return undefined
+  const usage = usageFrom(input.usage)
+  const rawModels = input.models
+  const rawDays = input.days
+  if (usage === undefined || !Array.isArray(rawModels) || rawModels.length > 512 || !Array.isArray(rawDays) || rawDays.length > 3_660) {
+    return undefined
+  }
+  const models = rawModels.map(modelUsageFrom)
+  const days = rawDays.map(dailyUsageFrom)
+  if (models.some(model => model === undefined) || days.some(day => day === undefined)) return undefined
+  return {
+    language,
+    model,
+    input: {
+      usage,
+      models: models as ModelTokenUsageRecord[],
+      days: days as DailyTokenUsageRecord[],
+    },
+  }
+}
+
+/** List every registered model the user may explicitly select for an auxiliary analysis. */
+async function analysisModels(ctx: Context): Promise<TokenUsageAnalysisModel[]> {
+  const groups = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
+    try {
+      const models = await ctx.llm.listModels(provider.id)
+      return models.map(model => ({
+        provider: provider.id,
+        providerName: provider.name,
+        model: model.id,
+        modelName: model.name,
+      }))
+    } catch (error) {
+      ctx.logger.warn(`token usage: failed to list analysis models for "${provider.id}": ${String(error)}`)
+      return []
+    }
+  }))
+  const seen = new Set<string>()
+  return groups.flat()
+    .filter(entry => {
+      const key = `${entry.provider}\u0000${entry.model}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((left, right) => left.providerName.localeCompare(right.providerName)
+      || left.modelName.localeCompare(right.modelName)
+      || left.provider.localeCompare(right.provider)
+      || left.model.localeCompare(right.model))
+}
+
+/** Return whether a user-selected route still belongs to the integrated-model catalog. */
+function isKnownModel(models: readonly TokenUsageAnalysisModel[], selection: TokenUsageAnalysisModelSelection): boolean {
+  return models.some(model => model.provider === selection.provider && model.model === selection.model)
 }
 
 /** Expose persistent preferences and explicit configured-model trajectory analysis to the local Web client. */
@@ -90,17 +227,47 @@ function installRpc(ctx: Context): void {
         }
         return { ok: true, value: budget.get() }
       }
-      case 'trajectory/analyze': {
-        const request = analysisRequest(payload)
-        if (request === undefined) return rpcError('A valid session id and language are required.')
+      case 'analysis/models': {
+        const models = await analysisModels(ctx)
+        const defaultSelection = ctx.agentDefaultModel.currentSelection()
+        return {
+          ok: true,
+          value: {
+            models,
+            ...isKnownModel(models, defaultSelection) ? {
+              default: { provider: defaultSelection.provider, model: defaultSelection.model },
+            } : {},
+          },
+        }
+      }
+      case 'usage/analyze': {
+        const request = usageAnalysisRequest(payload)
+        if (request === undefined) return rpcError('A valid aggregate Token usage payload, selected model, and language are required.')
         try {
+          const models = await analysisModels(ctx)
+          if (!isKnownModel(models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
+          return {
+            ok: true,
+            value: await analyzeTokenUsage(ctx, request.input, request.model, request.language, operationSignal),
+          }
+        } catch (error) {
+          if (operationSignal.aborted) throw error
+          return rpcError(error instanceof Error ? error.message : String(error))
+        }
+      }
+      case 'trajectory/analyze': {
+        const request = trajectoryAnalysisRequest(payload)
+        if (request === undefined) return rpcError('A valid session id, selected model, and language are required.')
+        try {
+          const models = await analysisModels(ctx)
+          if (!isKnownModel(models, request.model)) return rpcError('Select one of the currently integrated models before starting analysis.')
           const live = ctx.sessions.get(request.sessionId)
           const events = live?.events
             ?? (await ctx.sessionPersistence.inspect(request.sessionId, operationSignal)).events
           if (events.length === 0) return rpcError('This session has no trajectory events to analyze.')
           return {
             ok: true,
-            value: await analyzeTrajectory(ctx, request.sessionId, events, request.language, operationSignal),
+            value: await analyzeTrajectory(ctx, request.sessionId, events, request.model, request.language, operationSignal),
           }
         } catch (error) {
           if (operationSignal.aborted) throw error

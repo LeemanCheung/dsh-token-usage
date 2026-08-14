@@ -54,6 +54,36 @@ export interface TrajectoryMetrics {
   usage: TokenUsageBuckets
 }
 
+/** One registered provider/model route the user may select for an auxiliary analysis. */
+export interface TokenUsageAnalysisModel {
+  provider: string
+  providerName: string
+  model: string
+  modelName: string
+}
+
+/** User-selected model route for one auxiliary analysis call. */
+export interface TokenUsageAnalysisModelSelection {
+  provider: string
+  model: string
+}
+
+/** Aggregate Token fields sent to an on-demand usage-analysis model call. */
+export interface TokenUsageAnalysisInput {
+  usage: TokenUsageBuckets
+  models: readonly ModelTokenUsageRecord[]
+  days: readonly DailyTokenUsageRecord[]
+}
+
+/** One ephemeral configured-model review of aggregate Token usage. */
+export interface TokenUsageAnalysis {
+  schema: 'dsh-token-usage/usage-analysis-v1'
+  generatedAt: string
+  model: TokenUsageAnalysisModelSelection
+  analysisUsage?: TokenUsageBuckets
+  report: string
+}
+
 /** One ephemeral configured-model review of a bounded DSH session trajectory. */
 export interface TrajectoryAnalysis {
   schema: 'dsh-token-usage/trajectory-analysis-v1'

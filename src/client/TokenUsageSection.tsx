@@ -5,6 +5,10 @@ import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type {
   DailyTokenUsageRecord,
   ModelTokenUsageRecord,
+  TokenUsageAnalysis,
+  TokenUsageAnalysisInput,
+  TokenUsageAnalysisModel,
+  TokenUsageAnalysisModelSelection,
   TokenUsageBuckets,
   TokenUsageRecorderProjection,
   TrajectoryAnalysis,
@@ -12,6 +16,7 @@ import type {
 import type { TokenUsageBudgetSnapshot } from './budget-controller.ts'
 import { dailyContributors, periodInsight } from './analytics.ts'
 import { dailyUsageCsv, modelUsageCsv, tokenUsageJson, type DownloadPort } from './export.ts'
+import type { TokenUsageAnalysisModelCatalog } from './usage-analysis-client.ts'
 import { NS } from './locales.ts'
 import css from './TokenUsageSection.module.css'
 
@@ -21,7 +26,17 @@ interface TokenUsageSectionInjected {
   }
   setBudget(value: number): Promise<void>
   download: DownloadPort
-  analyzeTrajectory(sessionId: string, signal: AbortSignal): Promise<TrajectoryAnalysis>
+  listAnalysisModels(signal: AbortSignal): Promise<TokenUsageAnalysisModelCatalog>
+  analyzeTokenUsage(
+    input: TokenUsageAnalysisInput,
+    model: TokenUsageAnalysisModelSelection,
+    signal: AbortSignal,
+  ): Promise<TokenUsageAnalysis>
+  analyzeTrajectory(
+    sessionId: string,
+    model: TokenUsageAnalysisModelSelection,
+    signal: AbortSignal,
+  ): Promise<TrajectoryAnalysis>
 }
 
 /** Full props assembled by the root-scoped Settings section renderer. */
@@ -52,6 +67,17 @@ type TrajectoryAnalysisState =
   | { status: 'loading'; sessionId: string; title: string }
   | { status: 'ready'; title: string; value: TrajectoryAnalysis }
   | { status: 'error'; sessionId: string; title: string; message: string }
+
+type AnalysisCatalogState =
+  | { status: 'loading' }
+  | { status: 'ready'; value: TokenUsageAnalysisModelCatalog }
+  | { status: 'error'; message: string }
+
+type TokenUsageAnalysisState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; value: TokenUsageAnalysis }
+  | { status: 'error'; message: string }
 
 /** Detached zero buckets for dashboard folds. */
 function zeroBuckets(): TokenUsageBuckets {
@@ -197,6 +223,21 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
     days: [...days.entries()]
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
+  }
+}
+
+/** Return only detached aggregate buckets, route records, and UTC dates for AI usage analysis. */
+export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'models' | 'days'>): TokenUsageAnalysisInput {
+  return {
+    usage: { ...data.usage },
+    models: data.models.map(model => ({
+      provider: model.provider,
+      model: model.model,
+      assistantRequests: model.assistantRequests,
+      compactionRequests: model.compactionRequests,
+      usage: { ...model.usage },
+    })),
+    days: data.days.map(day => ({ date: day.date, usage: { ...day.usage } })),
   }
 }
 
@@ -492,6 +533,91 @@ function ExportControls({
   )
 }
 
+/** Encode one provider/model route for the native selector without displaying an opaque id. */
+function analysisModelKey(model: TokenUsageAnalysisModelSelection): string {
+  return `${model.provider}\u0000${model.model}`
+}
+
+/** Render a manual integrated-model picker and one aggregate-only Token optimization report. */
+function UsageAnalysisPanel({
+  catalog,
+  selectedModel,
+  state,
+  onSelectModel,
+  onAnalyze,
+  t,
+}: {
+  catalog: AnalysisCatalogState
+  selectedModel: TokenUsageAnalysisModelSelection | undefined
+  state: TokenUsageAnalysisState
+  onSelectModel(model: TokenUsageAnalysisModelSelection): void
+  onAnalyze(): void
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  if (catalog.status === 'loading') {
+    return <div className={css.analysisEmpty}><h3>{t('usageAnalysis')}</h3><p>{t('analysisModelsLoading')}</p></div>
+  }
+  if (catalog.status === 'error') {
+    return <div className={css.analysisError}><h3>{t('usageAnalysis')}</h3><p>{t('analysisModelsFailed', { message: catalog.message })}</p></div>
+  }
+  if (catalog.value.models.length === 0 || selectedModel === undefined) {
+    return <div className={css.analysisEmpty}><h3>{t('usageAnalysis')}</h3><p>{t('analysisModelsUnavailable')}</p></div>
+  }
+  const report = state.status === 'ready' ? state.value : undefined
+  const analysisTokens = report?.analysisUsage === undefined ? undefined : totalTokens(report.analysisUsage)
+  return (
+    <div className={css.analysisPanel}>
+      <div className={css.blockHead}>
+        <div>
+          <h3>{t('usageAnalysis')}</h3>
+          <p>{t('usageAnalysisIntro')}</p>
+        </div>
+        <label className={css.analysisModelSelect}>
+          <span>{t('analysisModel')}</span>
+          <select
+            value={analysisModelKey(selectedModel)}
+            aria-label={t('analysisModel')}
+            disabled={state.status === 'loading'}
+            onChange={(event) => {
+              const model = catalog.value.models.find(entry => analysisModelKey(entry) === event.currentTarget.value)
+              if (model !== undefined) onSelectModel({ provider: model.provider, model: model.model })
+            }}
+          >
+            {catalog.value.models.map(model => (
+              <option key={analysisModelKey(model)} value={analysisModelKey(model)}>
+                {model.providerName} · {model.modelName}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className={css.analysisPrivacy}>{t('usageAnalysisPrivacy')}</p>
+      <p className={css.analysisScope}>{t('analysisModelScope')}</p>
+      <button
+        className={css.analysisButton}
+        type="button"
+        disabled={state.status === 'loading'}
+        onClick={onAnalyze}
+      >{state.status === 'loading' ? t('usageAnalyzing') : t('analyzeUsage')}</button>
+      {state.status === 'error' ? <p className={css.analysisErrorText}>{t('usageAnalysisFailed', { message: state.message })}</p> : null}
+      {report === undefined ? null : <>
+        <div className={css.blockHead}>
+          <div>
+            <h3>{t('usageAnalysisReport')}</h3>
+            <p>{t('analysisMeta', {
+              provider: report.model.provider,
+              model: report.model.model,
+              time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(report.generatedAt)),
+            })}</p>
+          </div>
+          {analysisTokens === undefined ? null : <span className={css.analysisCost}>{t('analysisCost', { total: formatTokens(analysisTokens) })}</span>}
+        </div>
+        <pre className={css.analysisReport}>{report.report}</pre>
+      </>}
+    </div>
+  )
+}
+
 /** Render one ephemeral model-generated review and its deterministic measurements. */
 function TrajectoryAnalysisPanel({ state, t }: {
   state: TrajectoryAnalysisState
@@ -542,6 +668,8 @@ export function TokenUsageSection({
   useBudget,
   setBudget,
   download,
+  listAnalysisModels,
+  analyzeTokenUsage,
   analyzeTrajectory,
   t,
 }: TokenUsageSectionProps): ReactNode {
@@ -553,20 +681,44 @@ export function TokenUsageSection({
   const [range, setRange] = useState<InsightRange>(30)
   const [selectedDate, setSelectedDate] = useState<string>()
   const [analysis, setAnalysis] = useState<TrajectoryAnalysisState>({ status: 'idle' })
-  const analysisController = useRef<AbortController>()
-  useEffect(() => () => { analysisController.current?.abort() }, [])
+  const [analysisCatalog, setAnalysisCatalog] = useState<AnalysisCatalogState>({ status: 'loading' })
+  const [selectedAnalysisModel, setSelectedAnalysisModel] = useState<TokenUsageAnalysisModelSelection>()
+  const [usageReport, setUsageReport] = useState<TokenUsageAnalysisState>({ status: 'idle' })
+  const trajectoryController = useRef<AbortController>()
+  const usageController = useRef<AbortController>()
+  useEffect(() => () => {
+    trajectoryController.current?.abort()
+    usageController.current?.abort()
+  }, [])
+  useEffect(() => {
+    const controller = new AbortController()
+    void listAnalysisModels(controller.signal).then((catalog) => {
+      if (controller.signal.aborted) return
+      setAnalysisCatalog({ status: 'ready', value: catalog })
+      setSelectedAnalysisModel(current => current !== undefined
+        && catalog.models.some(model => model.provider === current.provider && model.model === current.model)
+        ? current
+        : catalog.default ?? catalog.models[0])
+    }, (error: unknown) => {
+      if (!controller.signal.aborted) {
+        setAnalysisCatalog({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      }
+    })
+    return () => { controller.abort() }
+  }, [])
 
   const runAnalysis = (row: SessionUsageRow): void => {
-    analysisController.current?.abort()
+    if (selectedAnalysisModel === undefined) return
+    trajectoryController.current?.abort()
     const controller = new AbortController()
-    analysisController.current = controller
+    trajectoryController.current = controller
     setAnalysis({ status: 'loading', sessionId: row.id, title: row.title })
-    void analyzeTrajectory(row.id, controller.signal).then((value) => {
-      if (analysisController.current === controller && !controller.signal.aborted) {
+    void analyzeTrajectory(row.id, selectedAnalysisModel, controller.signal).then((value) => {
+      if (trajectoryController.current === controller && !controller.signal.aborted) {
         setAnalysis({ status: 'ready', title: row.title, value })
       }
     }, (error: unknown) => {
-      if (analysisController.current === controller && !controller.signal.aborted) {
+      if (trajectoryController.current === controller && !controller.signal.aborted) {
         setAnalysis({
           status: 'error',
           sessionId: row.id,
@@ -581,6 +733,23 @@ export function TokenUsageSection({
     () => aggregateUsage(ids.map(id => byId[id]).filter((value): value is SessionSummary => value !== undefined)),
     [byId, ids],
   )
+  const runUsageAnalysis = (): void => {
+    if (selectedAnalysisModel === undefined) return
+    usageController.current?.abort()
+    const controller = new AbortController()
+    usageController.current = controller
+    setUsageReport({ status: 'loading' })
+    void analyzeTokenUsage(usageAnalysisInput(data), selectedAnalysisModel, controller.signal).then((value) => {
+      if (usageController.current === controller && !controller.signal.aborted) {
+        setUsageReport({ status: 'ready', value })
+      }
+    }, (error: unknown) => {
+      if (usageController.current === controller && !controller.signal.aborted) {
+        setUsageReport({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      }
+    })
+  }
+
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const filteredSessions = useMemo(() => data.sessions.filter(row => {
     if (normalizedQuery.length === 0) return true
@@ -621,6 +790,14 @@ export function TokenUsageSection({
 
           <PeriodInsights days={data.days} range={range} onRangeChange={setRange} t={t} />
           <BudgetPanel days={data.days} snapshot={budget} setBudget={setBudget} t={t} />
+          <UsageAnalysisPanel
+            catalog={analysisCatalog}
+            selectedModel={selectedAnalysisModel}
+            state={usageReport}
+            onSelectModel={setSelectedAnalysisModel}
+            onAnalyze={runUsageAnalysis}
+            t={t}
+          />
           <ActivityHeatmap days={data.days} selectedDate={selectedDate} onSelectDate={setSelectedDate} t={t} />
           {selectedDay === undefined ? null : <DayDrilldown day={selectedDay} sessions={data.sessions} t={t} onClose={() => { setSelectedDate(undefined) }} />}
 
@@ -720,7 +897,7 @@ export function TokenUsageSection({
                           <button
                             className={css.analysisButton}
                             type="button"
-                            disabled={analysis.status === 'loading' && analysis.sessionId === row.id}
+                            disabled={selectedAnalysisModel === undefined || (analysis.status === 'loading' && analysis.sessionId === row.id)}
                             onClick={() => { runAnalysis(row) }}
                           >{analysis.status === 'loading' && analysis.sessionId === row.id ? t('analyzing') : t('analyze')}</button>
                         </td>

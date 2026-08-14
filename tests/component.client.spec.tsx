@@ -169,6 +169,20 @@ function props(
     useBudget: selector => selector({ status: 'ready', budget: 0 }),
     setBudget: async () => {},
     download: { save: () => {} },
+    listAnalysisModels: async () => ({
+      models: [
+        { provider: 'deepseek', providerName: 'DeepSeek', model: 'deepseek-chat', modelName: 'DeepSeek Chat' },
+        { provider: 'openai', providerName: 'OpenAI', model: 'gpt-5-mini', modelName: 'GPT-5 mini' },
+      ],
+      default: { provider: 'deepseek', model: 'deepseek-chat' },
+    }),
+    analyzeTokenUsage: async (_input, model) => ({
+      schema: 'dsh-token-usage/usage-analysis-v1',
+      generatedAt: '2026-08-14T12:00:00.000Z',
+      model,
+      analysisUsage: { uncachedInputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      report: '# 用量概览\n\n缓存使用良好。',
+    }),
     analyzeTrajectory,
     t: translate,
   } as TokenUsageSectionProps
@@ -287,15 +301,44 @@ describe('TokenUsageSection', () => {
     expect(exported).not.toContain('session-activity')
   })
 
-  it('runs configured-model trajectory analysis for a selected session', async () => {
+  it('selects an integrated model and sends only aggregate Token records for AI optimization', async () => {
+    const usageAnalyze = vi.fn(props([first]).analyzeTokenUsage)
+    render(<TokenUsageSection {...props([first])} analyzeTokenUsage={usageAnalyze} />)
+
+    const selector = await screen.findByLabelText('分析模型')
+    fireEvent.change(selector, { target: { value: 'openai\u0000gpt-5-mini' } })
+    fireEvent.click(screen.getByRole('button', { name: '生成用量分析' }))
+
+    await waitFor(() => { expect(screen.getByText(/缓存使用良好/)).toBeTruthy() })
+    expect(usageAnalyze).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usage: { uncachedInputTokens: 100, outputTokens: 30, cacheReadTokens: 50, cacheWriteTokens: 10 },
+        models: expect.any(Array),
+        days: expect.any(Array),
+      }),
+      { provider: 'openai', model: 'gpt-5-mini' },
+      expect.any(AbortSignal),
+    )
+    const input = usageAnalyze.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(input).not.toHaveProperty('sessions')
+    expect(JSON.stringify(input)).not.toContain('主要会话')
+    expect(screen.getByText(/openai\/gpt-5-mini ·/)).toBeTruthy()
+  })
+
+  it('runs trajectory analysis for a selected session through the chosen integrated route', async () => {
     const analyze = vi.fn(props([first]).analyzeTrajectory)
     render(<TokenUsageSection {...props([first], analyze)} />)
 
+    await waitFor(() => { expect(screen.getByLabelText('分析模型')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))
 
     expect(screen.getByText('正在分析“主要会话”的完整会话轨迹…')).toBeTruthy()
     await waitFor(() => { expect(screen.getByText(/调用链与合规性正常/)).toBeTruthy() })
-    expect(analyze).toHaveBeenCalledWith('session-first', expect.any(AbortSignal))
+    expect(analyze).toHaveBeenCalledWith(
+      'session-first',
+      { provider: 'deepseek', model: 'deepseek-chat' },
+      expect.any(AbortSignal),
+    )
     expect(screen.getByText(/deepseek\/deepseek-chat ·/)).toBeTruthy()
     expect(screen.getByText('本次分析 60 Token')).toBeTruthy()
   })

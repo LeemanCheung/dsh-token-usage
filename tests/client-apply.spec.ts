@@ -42,11 +42,19 @@ describe('client apply', () => {
     }), TokenUsageSection)
     const options = registerSlot.mock.calls[0]?.[0] as {
       label: () => string
-      inject: () => { analyzeTrajectory: unknown; setBudget: unknown; download: unknown }
+      inject: () => {
+        analyzeTrajectory: unknown
+        analyzeTokenUsage: unknown
+        listAnalysisModels: unknown
+        setBudget: unknown
+        download: unknown
+      }
     }
     expect(options.label()).toBe('Token 用量')
     expect(options.inject()).toEqual(expect.objectContaining({
       analyzeTrajectory: expect.any(Function),
+      analyzeTokenUsage: expect.any(Function),
+      listAnalysisModels: expect.any(Function),
       setBudget: expect.any(Function),
       download: expect.any(Object),
     }))

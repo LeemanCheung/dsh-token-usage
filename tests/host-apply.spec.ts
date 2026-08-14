@@ -140,6 +140,8 @@ describe('host apply', () => {
       sessionPersistence: { inspect: vi.fn() },
       agentDefaultModel: { currentSelection: () => ({ provider: 'configured', model: 'audit' }) },
       llm: {
+        listProviders: () => [{ id: 'configured', name: 'Configured provider' }],
+        listModels: async () => [{ provider: 'configured', id: 'audit', name: 'Audit model' }],
         prepareCall: vi.fn(async (config: Record<string, unknown>) => ({ config, stream })),
       },
       logger: { warn: vi.fn() },
@@ -149,7 +151,7 @@ describe('host apply', () => {
     apply(ctx)
     const result = await handler?.(
       'trajectory/analyze',
-      { sessionId: 'session-a', language: 'zh' },
+      { sessionId: 'session-a', model: { provider: 'configured', model: 'audit' }, language: 'zh' },
       new AbortController().signal,
     ) as { ok: boolean; value?: { report: string; model: { provider: string; model: string } } }
 
@@ -161,6 +163,78 @@ describe('host apply', () => {
       },
     })
     expect(stream).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-a' }))
+  })
+
+  it('lists integrated models and analyzes only aggregate usage through a selected route', async () => {
+    let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
+    const stream = vi.fn(async function* () {
+      yield { type: 'text-delta' as const, index: 0, text: '# 用量概览\n\n缓存效率良好。' }
+      yield { type: 'usage' as const, usage: { inputTokens: 20, outputTokens: 10 } }
+      yield { type: 'finish' as const, reason: { kind: 'stop' as const } }
+    })
+    const rpc = rpcServices()
+    rpc.connection.rpc.handle = vi.fn((_channel, next) => {
+      handler = next as typeof handler
+      return async () => {}
+    }) as typeof rpc.connection.rpc.handle
+    const prepareCall = vi.fn(async (config: Record<string, unknown>) => ({ config, stream }))
+    const ctx = {
+      ...rpc,
+      sessionProjections: { register: vi.fn() },
+      sessionQuery: { listSessions: vi.fn(async () => []) },
+      sessionProjectionCache: { write: vi.fn(), coldSnapshot: vi.fn() },
+      sessions: { get: vi.fn() },
+      sessionPersistence: { inspect: vi.fn() },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: 'chat' }) },
+      llm: {
+        listProviders: () => [
+          { id: 'deepseek', name: 'DeepSeek' },
+          { id: 'openai', name: 'OpenAI' },
+        ],
+        listModels: async (provider: string) => provider === 'deepseek'
+          ? [{ provider, id: 'chat', name: 'DeepSeek Chat' }]
+          : [{ provider, id: 'gpt', name: 'GPT' }],
+        prepareCall,
+      },
+      logger: { warn: vi.fn() },
+      effect: vi.fn((install: () => unknown) => install()),
+    } as unknown as Context
+
+    apply(ctx)
+    const signal = new AbortController().signal
+    const catalog = await handler?.('analysis/models', {}, signal) as { ok: boolean; value?: { models: unknown[]; default?: unknown } }
+    const result = await handler?.('usage/analyze', {
+      model: { provider: 'openai', model: 'gpt' },
+      language: 'zh',
+      input: {
+        usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 },
+        models: [{
+          provider: 'deepseek', model: 'chat', assistantRequests: 2, compactionRequests: 0,
+          usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 },
+        }],
+        days: [{ date: '2026-08-14', usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 } }],
+      },
+    }, signal) as { ok: boolean; value?: { model: { provider: string; model: string }; report: string } }
+    const rejected = await handler?.('usage/analyze', {
+      model: { provider: 'missing', model: 'route' }, language: 'zh', input: {
+        usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, models: [], days: [],
+      },
+    }, signal) as { ok: boolean }
+
+    expect(catalog).toMatchObject({
+      ok: true,
+      value: {
+        models: [
+          { provider: 'deepseek', model: 'chat' },
+          { provider: 'openai', model: 'gpt' },
+        ],
+        default: { provider: 'deepseek', model: 'chat' },
+      },
+    })
+    expect(result).toMatchObject({ ok: true, value: { model: { provider: 'openai', model: 'gpt' }, report: '# 用量概览\n\n缓存效率良好。' } })
+    expect(prepareCall).toHaveBeenCalledWith({ provider: 'openai', model: 'gpt', maxTokens: 2_600 }, expect.any(AbortSignal))
+    expect(rejected).toMatchObject({ ok: false })
+    expect(prepareCall).toHaveBeenCalledTimes(1)
   })
 
   it('cancels and drains history warming when its fiber is disposed', async () => {

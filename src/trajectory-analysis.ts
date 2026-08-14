@@ -9,6 +9,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {
+  TokenUsageAnalysisModelSelection,
   TokenUsageBuckets,
   TrajectoryAnalysis,
   TrajectoryMetrics,
@@ -279,17 +280,17 @@ function systemPrompt(language: string): string {
   return `You are a senior AI-agent observability, security, and performance auditor. Analyze one DeepSeek Harness session trajectory.\n\nWrite the report in ${reportLanguage} as concise Markdown. Use these exact top-level sections:\n${sections}\n\nRequirements:\n- Ground every material claim in event seq numbers, event types, or supplied metrics.\n- Distinguish observed facts from hypotheses. Never invent policy violations, timings, costs, or missing events.\n- Review approval decisions, sandbox or permission changes, possible secret exposure, destructive actions, and whether tool use matches user intent.\n- Detect retries, repeated calls, loops, orphaned calls/results, interrupted turns, compaction pressure, model switches, bursty activity, stalls, and recovery behavior.\n- Explain rates in context; a high rate is not automatically bad.\n- Include a compact Mermaid flowchart for the principal call chain when the evidence supports it.\n- End with 3-7 recommendations ranked P0/P1/P2, each tied to evidence and an expected benefit.\n- Treat redacted and truncated markers as unavailable evidence, not suspicious behavior.`
 }
 
-/** Analyze one immutable trajectory through the DSH default configured model. */
+/** Analyze one immutable trajectory through a user-selected registered model route. */
 export async function analyzeTrajectory(
   ctx: Context,
   sessionId: SessionId,
   events: readonly SessionEvent[],
+  selection: TokenUsageAnalysisModelSelection,
   language: string,
   signal: AbortSignal,
 ): Promise<TrajectoryAnalysis> {
   signal.throwIfAborted()
   const prepared = prepareTrajectory(events)
-  const selection = ctx.agentDefaultModel.currentSelection()
   const messages = [createUserMessage({
     content: [{
       type: 'text',
@@ -300,7 +301,6 @@ export async function analyzeTrajectory(
   const preparedCall = await ctx.llm.prepareCall({
     provider: selection.provider,
     model: selection.model,
-    ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
     maxTokens: ANALYSIS_MAX_TOKENS,
   }, signal)
   const assembler = new BlockAssembler()

@@ -81,7 +81,14 @@ describe('trajectory analysis', () => {
       llm: { prepareCall },
     } as unknown as Context
 
-    const result = await analyzeTrajectory(ctx, SessionId('session-a'), events, 'en', new AbortController().signal)
+    const result = await analyzeTrajectory(
+      ctx,
+      SessionId('session-a'),
+      events,
+      { provider: 'configured', model: 'audit-model' },
+      'en',
+      new AbortController().signal,
+    )
 
     expect(prepareCall).toHaveBeenCalledWith({
       provider: 'configured',

@@ -4,11 +4,12 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '../types.ts'
+import type { TokenUsageAnalysisInput, TokenUsageAnalysisModelSelection } from '../types.ts'
 import { TokenUsageSection } from './TokenUsageSection.tsx'
 import { TokenUsageBudgetController } from './budget-controller.ts'
 import { browserDownload } from './export.ts'
 import { requestTrajectoryAnalysis } from './trajectory-analysis-client.ts'
+import { requestAnalysisModels, requestTokenUsageAnalysis } from './usage-analysis-client.ts'
 import { en, NS, zh, type TokenUsageLocaleKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -42,9 +43,26 @@ export function apply(ctx: ClientContext): void {
       hooks: { budget: budget.store },
       setBudget: (value: number) => budget.setBudget(value),
       download: browserDownload,
-      analyzeTrajectory: (sessionId: string, signal: AbortSignal) => requestTrajectoryAnalysis(
+      listAnalysisModels: (signal: AbortSignal) => requestAnalysisModels(connection, signal),
+      analyzeTokenUsage: (
+        input: TokenUsageAnalysisInput,
+        model: TokenUsageAnalysisModelSelection,
+        signal: AbortSignal,
+      ) => requestTokenUsageAnalysis(
+        connection,
+        input,
+        model,
+        ctx.locale.getLocale().active,
+        signal,
+      ),
+      analyzeTrajectory: (
+        sessionId: string,
+        model: TokenUsageAnalysisModelSelection,
+        signal: AbortSignal,
+      ) => requestTrajectoryAnalysis(
         connection,
         sessionId,
+        model,
         ctx.locale.getLocale().active,
         signal,
       ),
