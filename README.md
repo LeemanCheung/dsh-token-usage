@@ -1,6 +1,7 @@
 # dsh-token-usage
 
 <p align="center">
+  <a href="https://awesome.re"><img src="https://awesome.re/badge.svg" alt="Awesome"></a>
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f.svg" alt="MIT License"></a>
   <a href="https://github.com/LeemanCheung/dsh-token-usage"><img src="https://img.shields.io/badge/DSH-plugin-2f6cff.svg" alt="DSH Plugin"></a>
