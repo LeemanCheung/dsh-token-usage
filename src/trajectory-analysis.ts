@@ -87,17 +87,27 @@ function sanitize(value: unknown, depth = 0): unknown {
   ]))
 }
 
-/** Sum provider-reported usage into the plugin's disjoint buckets. */
-function addUsage(target: TokenUsageBuckets, value: unknown): void {
-  if (!isRecord(value)) return
+/** Decode provider-reported usage into the plugin's disjoint buckets. */
+function usageBuckets(value: unknown): TokenUsageBuckets | undefined {
+  if (!isRecord(value)) return undefined
   const number = (key: string): number => {
     const candidate = value[key]
     return typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 ? candidate : 0
   }
-  target.uncachedInputTokens += number('inputTokens')
-  target.outputTokens += number('outputTokens')
-  target.cacheReadTokens += number('cacheReadTokens')
-  target.cacheWriteTokens += number('cacheWriteTokens')
+  return {
+    uncachedInputTokens: number('inputTokens'),
+    outputTokens: number('outputTokens'),
+    cacheReadTokens: number('cacheReadTokens'),
+    cacheWriteTokens: number('cacheWriteTokens'),
+  }
+}
+
+/** Add or subtract disjoint usage buckets from a mutable trajectory total. */
+function adjustUsage(target: TokenUsageBuckets, value: TokenUsageBuckets, direction: 1 | -1): void {
+  target.uncachedInputTokens += direction * value.uncachedInputTokens
+  target.outputTokens += direction * value.outputTokens
+  target.cacheReadTokens += direction * value.cacheReadTokens
+  target.cacheWriteTokens += direction * value.cacheWriteTokens
 }
 
 /** Count one turn-end reason as failed unless it completed normally. */
@@ -156,6 +166,20 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
   let subagents = 0
   let omittedChunkEvents = 0
   const rows: string[] = []
+  const assistantSamples = new Map<string, TokenUsageBuckets>()
+  const assistantKey = (data: Record<string, unknown>): string | undefined =>
+    typeof data.turn === 'number' && typeof data.step === 'number' ? `${data.turn}\u0000${data.step}` : undefined
+  const applyAssistantUsage = (data: Record<string, unknown>, rawUsage: unknown): boolean => {
+    const key = assistantKey(data)
+    const next = usageBuckets(rawUsage)
+    if (key === undefined || next === undefined) return false
+    const previous = assistantSamples.get(key)
+    if (previous !== undefined) adjustUsage(usage, previous, -1)
+    else assistantRequests += 1
+    adjustUsage(usage, next, 1)
+    assistantSamples.set(key, next)
+    return true
+  }
 
   for (const event of events) {
     const type = String(event.type)
@@ -169,18 +193,36 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
         else failedTurns += 1
         break
       case 'step/start': stepCount += 1; break
-      case 'assistant/message':
-        assistantRequests += 1
-        addUsage(usage, data.usage)
+      case 'assistant/message': {
+        if (!applyAssistantUsage(data, data.usage)) {
+          const key = assistantKey(data)
+          if (key !== undefined && !assistantSamples.has(key)) {
+            assistantRequests += 1
+            assistantSamples.set(key, { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
+          }
+        }
         break
-      case 'assistant/chunk': omittedChunkEvents += 1; break
+      }
+      case 'assistant/chunk': {
+        omittedChunkEvents += 1
+        const chunk = isRecord(data.chunk) ? data.chunk : undefined
+        if (chunk?.type === 'usage') applyAssistantUsage(data, chunk.usage)
+        break
+      }
       case 'tool/call': toolCalls += 1; break
       case 'tool/result': if (data.error !== undefined) toolErrors += 1; break
-      case 'llm/retry': retries += 1; break
-      case 'compaction/summary':
-        compactions += 1
-        addUsage(usage, data.usage)
+      case 'llm/retry': {
+        retries += 1
+        const key = assistantKey(data)
+        if (key !== undefined) assistantSamples.delete(key)
         break
+      }
+      case 'compaction/summary': {
+        compactions += 1
+        const compactionUsage = usageBuckets(data.usage)
+        if (compactionUsage !== undefined) adjustUsage(usage, compactionUsage, 1)
+        break
+      }
       case 'approval/asked': approvalsAsked += 1; break
       case 'approval/decided':
         if (isRecord(data.outcome) ? data.outcome.kind !== 'allowed-once' : data.outcome !== 'allowed-once') {

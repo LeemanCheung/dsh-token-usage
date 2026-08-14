@@ -59,9 +59,59 @@ describe('trajectory analysis', () => {
     expect(prepared.truncated).toBe(false)
   })
 
-  it('redacts common bearer, key, and password forms', () => {
+  it('replaces streamed usage per attempt and retains failed retry costs', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'usage', usage: { inputTokens: 100, outputTokens: 20 } },
+      }),
+      event(1, 10_000, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'usage', usage: { inputTokens: 120, outputTokens: 25 } },
+      }),
+      event(2, 20_000, 'llm/retry', { turn: 1, step: 1, retry: 1 }),
+      event(3, 60_000, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'usage', usage: { inputTokens: 50, outputTokens: 10 } },
+      }),
+    ])
+
+    expect(prepared.metrics.assistantRequests).toBe(2)
+    expect(prepared.metrics.omittedChunkEvents).toBe(3)
+    expect(prepared.metrics.usage).toEqual({
+      uncachedInputTokens: 170,
+      outputTokens: 35,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    })
+    expect(prepared.metrics.tokensPerMinute).toBe(205)
+  })
+
+  it('redacts bearer, provider keys, JWTs, and sensitive JSON fields', () => {
     expect(redactTrajectoryText('Bearer abcdefghijkl sk-abcdefgh password=hunter2'))
       .toBe('Bearer <redacted> sk-<redacted> password=<redacted>')
+    const prepared = prepareTrajectory([
+      event(0, 0, 'tool/call', {
+        turn: 1,
+        step: 1,
+        callId: 'call-secret',
+        name: 'shell',
+        arguments: JSON.stringify({
+          OPENAI_API_KEY: 'openai-secret',
+          'X-Api-Key': 'header-secret',
+          inputTokens: 42,
+          jwt: 'eyJabcdefgh.abcdefghij.abcdefghijk',
+        }),
+      }),
+    ])
+    expect(prepared.timeline).not.toContain('openai-secret')
+    expect(prepared.timeline).not.toContain('header-secret')
+    expect(prepared.timeline).not.toContain('eyJabcdefgh')
+    expect(prepared.timeline).toContain('inputTokens')
+    expect(prepared.timeline).toContain('42')
   })
 
   it('uses the configured model through one prepared call and returns its usage', async () => {
