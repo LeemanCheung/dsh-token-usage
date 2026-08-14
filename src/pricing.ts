@@ -72,6 +72,7 @@ export function estimateCostUSD(usage: TokenUsageBuckets, rate: TokenUsagePriceR
 /** Add built-in public USD pricing to model aggregates without pricing unknown routes. */
 export function tokenUsageCostSummary(models: readonly ModelTokenUsageRecord[]): TokenUsageCostSummary {
   let totalCostUSD = 0
+  let cacheReadSavingsUSD = 0
   let coveredTokens = 0
   let totalTokensCount = 0
   let coveredModels = 0
@@ -90,7 +91,9 @@ export function tokenUsageCostSummary(models: readonly ModelTokenUsageRecord[]):
       }
     }
     const totalCost = estimateCostUSD(usage, rate)
+    const cacheReadSavings = usage.cacheReadTokens * Math.max(0, rate.inputPerMillion - rate.cacheReadPerMillion) / TOKENS_PER_MILLION
     totalCostUSD += totalCost
+    cacheReadSavingsUSD += cacheReadSavings
     coveredTokens += total
     if (total > 0) coveredModels += 1
     return {
@@ -100,12 +103,14 @@ export function tokenUsageCostSummary(models: readonly ModelTokenUsageRecord[]):
       compactionRequests: model.compactionRequests,
       usage,
       totalCostUSD: totalCost,
+      cacheReadSavingsUSD: cacheReadSavings,
       rate,
     }
   })
   return {
     currency: 'USD',
     totalCostUSD,
+    cacheReadSavingsUSD,
     coveredTokens,
     totalTokens: totalTokensCount,
     coveredModels,

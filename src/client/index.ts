@@ -1,6 +1,6 @@
 /** Token usage dashboard registered into Web Settings. */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -20,7 +20,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Client services required by the Settings contribution. */
-export const inject = ['slots', 'locale', 'connection']
+export const inject = ['slots', 'locale', 'connection', 'sessions']
 
 /** Contribute a localized Token usage page to Settings. */
 export function apply(ctx: ClientContext): void {
@@ -43,6 +43,7 @@ export function apply(ctx: ClientContext): void {
       hooks: { budget: budget.store },
       setBudget: (value: number) => budget.setBudget(value),
       download: browserDownload,
+      openSession: (sessionId: SessionId) => { ctx.sessions.open(sessionId) },
       listAnalysisModels: (signal: AbortSignal) => requestAnalysisModels(connection, signal),
       analyzeTokenUsage: (
         input: TokenUsageAnalysisInput,

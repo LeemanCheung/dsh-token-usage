@@ -1,19 +1,30 @@
-import type { DailyTokenUsageRecord, ModelTokenUsageRecord, TokenUsageBuckets } from '../types.ts'
+import type {
+  DailyTokenUsageRecord,
+  ModelTokenUsageRecord,
+  PricedModelTokenUsageRecord,
+  TokenUsageBuckets,
+  TokenUsageCostSummary,
+} from '../types.ts'
+import { PUBLIC_PRICE_CATALOG_AS_OF, tokenUsageCostSummary } from '../pricing.ts'
 
 /** Narrow aggregate-only source accepted by the privacy-safe export Module. */
 export interface UsageExportSource {
   usage: TokenUsageBuckets
+  compactionUsage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
 }
 
-/** Versioned aggregate-only JSON document. */
-export interface TokenUsageExportV1 {
-  schema: 'dsh-token-usage/export-v1'
+/** Versioned aggregate-only JSON document with exact compaction and partial public-rate pricing. */
+export interface TokenUsageExportV2 {
+  schema: 'dsh-token-usage/export-v2'
   generatedAt: string
   timezone: 'UTC'
   totals: TokenUsageBuckets
-  models: ModelTokenUsageRecord[]
+  compactionUsage: TokenUsageBuckets
+  pricingCatalogAsOf: string
+  pricing: TokenUsageCostSummary
+  models: PricedModelTokenUsageRecord[]
   days: DailyTokenUsageRecord[]
 }
 
@@ -32,21 +43,37 @@ function copyBuckets(usage: TokenUsageBuckets): TokenUsageBuckets {
   }
 }
 
-/** Stable aggregate-only document that never accepts session data. */
-export function tokenUsageExport(source: UsageExportSource, generatedAt: string): TokenUsageExportV1 {
+/** Return a detached public-price estimate that never retains source aggregates. */
+function copiedPricing(models: readonly ModelTokenUsageRecord[]): TokenUsageCostSummary {
+  const summary = tokenUsageCostSummary(models)
   return {
-    schema: 'dsh-token-usage/export-v1',
+    ...summary,
+    models: summary.models.map(model => ({
+      provider: model.provider,
+      model: model.model,
+      assistantRequests: model.assistantRequests,
+      compactionRequests: model.compactionRequests,
+      usage: copyBuckets(model.usage),
+      ...model.totalCostUSD === undefined ? {} : { totalCostUSD: model.totalCostUSD },
+      ...model.cacheReadSavingsUSD === undefined ? {} : { cacheReadSavingsUSD: model.cacheReadSavingsUSD },
+      ...model.rate === undefined ? {} : { rate: { ...model.rate } },
+    })),
+  }
+}
+
+/** Stable aggregate-only document that never accepts session data. */
+export function tokenUsageExport(source: UsageExportSource, generatedAt: string): TokenUsageExportV2 {
+  const pricing = copiedPricing(source.models)
+  return {
+    schema: 'dsh-token-usage/export-v2',
     generatedAt,
     timezone: 'UTC',
     totals: copyBuckets(source.usage),
-    models: source.models
-      .map(model => ({
-        provider: model.provider,
-        model: model.model,
-        assistantRequests: model.assistantRequests,
-        compactionRequests: model.compactionRequests,
-        usage: copyBuckets(model.usage),
-      }))
+    compactionUsage: copyBuckets(source.compactionUsage),
+    pricingCatalogAsOf: PUBLIC_PRICE_CATALOG_AS_OF,
+    pricing,
+    models: pricing.models
+      .slice()
       .sort((left, right) => left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model)),
     days: source.days
       .map(day => ({ date: day.date, usage: copyBuckets(day.usage) }))
@@ -96,9 +123,10 @@ export function dailyUsageCsv(source: Pick<UsageExportSource, 'days'>): string {
 
 /** Export model aggregate buckets without session identity or conversation content. */
 export function modelUsageCsv(source: Pick<UsageExportSource, 'models'>): string {
+  const models = tokenUsageCostSummary(source.models).models
   return csv([
-    ['provider', 'model', 'assistantRequests', 'compactionRequests', 'uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'inputTokens', 'totalTokens'],
-    ...source.models
+    ['provider', 'model', 'assistantRequests', 'compactionRequests', 'uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'inputTokens', 'totalTokens', 'estimatedCostUSD', 'cacheReadSavingsUSD', 'pricingCatalogAsOf'],
+    ...models
       .slice()
       .sort((left, right) => left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model))
       .map(model => [
@@ -112,6 +140,9 @@ export function modelUsageCsv(source: Pick<UsageExportSource, 'models'>): string
         model.usage.cacheWriteTokens,
         model.usage.uncachedInputTokens + model.usage.cacheReadTokens + model.usage.cacheWriteTokens,
         model.usage.uncachedInputTokens + model.usage.cacheReadTokens + model.usage.cacheWriteTokens + model.usage.outputTokens,
+        model.totalCostUSD ?? '',
+        model.cacheReadSavingsUSD ?? '',
+        model.rate?.asOf ?? '',
       ]),
   ])
 }

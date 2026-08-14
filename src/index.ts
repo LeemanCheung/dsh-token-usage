@@ -154,9 +154,11 @@ function usageAnalysisRequest(payload: unknown): {
   const input = payload.input
   if (language === undefined || model === undefined || !isRecord(input)) return undefined
   const usage = usageFrom(input.usage)
+  const compactionUsage = usageFrom(input.compactionUsage)
   const rawModels = input.models
   const rawDays = input.days
-  if (usage === undefined || !Array.isArray(rawModels) || rawModels.length > 512 || !Array.isArray(rawDays) || rawDays.length > 3_660) {
+  if (usage === undefined || compactionUsage === undefined
+    || !Array.isArray(rawModels) || rawModels.length > 512 || !Array.isArray(rawDays) || rawDays.length > 3_660) {
     return undefined
   }
   const models = rawModels.map(modelUsageFrom)
@@ -167,6 +169,7 @@ function usageAnalysisRequest(payload: unknown): {
     model,
     input: {
       usage,
+      compactionUsage,
       models: models as ModelTokenUsageRecord[],
       days: days as DailyTokenUsageRecord[],
     },

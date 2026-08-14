@@ -28,6 +28,7 @@ interface RecorderState {
   route: Route | null
   assistantRequests: number
   compactionRequests: number
+  compactionUsage: TokenUsageBuckets
   usage: TokenUsageBuckets
   models: Record<string, ModelTokenUsageRecord>
   days: Record<string, TokenUsageBuckets>
@@ -44,6 +45,7 @@ const bucketsSchema = z.object({
 const projectionSchema: z.ZodType<TokenUsageRecorderProjection> = z.object({
   assistantRequests: z.number().int().nonnegative(),
   compactionRequests: z.number().int().nonnegative(),
+  compactionUsage: bucketsSchema,
   usage: bucketsSchema,
   models: z.array(z.object({
     provider: z.string(),
@@ -182,6 +184,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
     route: null,
     assistantRequests: 0,
     compactionRequests: 0,
+    compactionUsage: zeroBuckets(),
     usage: zeroBuckets(),
     models: {},
     days: {},
@@ -216,6 +219,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
       return {
         ...state,
         compactionRequests: state.compactionRequests + 1,
+        compactionUsage: addBuckets(state.compactionUsage, usage, 1),
         usage: addBuckets(state.usage, usage, 1),
         models,
         days,
@@ -273,6 +277,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
   view: state => ({
     assistantRequests: state.assistantRequests,
     compactionRequests: state.compactionRequests,
+    compactionUsage: state.compactionUsage,
     usage: state.usage,
     models: Object.values(state.models).sort((left, right) =>
       totalTokens(right.usage) - totalTokens(left.usage)
@@ -282,7 +287,7 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
   }),
-  stateVersion: 3,
+  stateVersion: 4,
 }
 
 /** Fold one complete event sequence through the canonical persistent projection reducer. */

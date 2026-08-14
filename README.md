@@ -30,8 +30,9 @@
 | **完整 Token bucket** | 分别记录未缓存输入、输出、缓存读取与缓存写入；`reasoningTokens` 已包含在输出中，不重复计算。 |
 | **多维统计** | 以 provider / model、会话与 UTC 日期聚合普通对话、每次重试和上下文压缩用量。 |
 | **30 周热力图** | GitHub commit graph 风格的 Token 活跃度图；颜色越深代表当天总用量越高，悬停查看明细，点击下钻到贡献会话。 |
-| **周期、预算、价格与导出** | 比较 7/30/90 日趋势，设置本地持久化的滚动 30 日预算，按公开 USD 费率估算精确匹配路由的成本与覆盖率，并导出聚合 JSON、每日 CSV 或模型 CSV。 |
-| **AI 用量优化** | 手动选择任一已接入的 provider/model，对总量、估算费用、输入/输出/缓存、路由贡献、趋势和波动生成证据化分析与 P0/P1/P2 优化建议。 |
+| **预算、预测、异常与导出** | 比较 7/30/90 日趋势，设置本地持久化的滚动 30 日预算，按最近 7 个完整 UTC 日预测 30 日运行率，并以稳健基线识别近期突增；导出聚合 JSON v2、每日 CSV 或模型 CSV。 |
+| **Agent 效率与归因** | 量化每次模型尝试 Token、每百次尝试压缩次数、精确上下文压缩 Token 占比、缓存结构、Top 路由集中度与未归因比例。 |
+| **AI 用量优化** | 手动选择任一已接入的 provider/model，对总量、压缩税、估算费用、输入/输出/缓存、路由贡献、趋势和波动生成证据化分析与 P0/P1/P2 优化建议。 |
 | **轨迹 Token 分析** | 手动选择会话后，使用同一模型以白名单元数据分析调用链、重试、异常恢复、速率、压缩和 Token 效率；不发送会话正文或工具载荷。 |
 | **用量节点与对账** | 按模型调用尝试和上下文压缩生成稳定用量节点，标注 actual/provisional/authoritative，识别最大节点、重试 Token，并对账 provider 事件总量。 |
 | **紧凑布局** | 使用 `K` / `M` / `B` 展示大数字，悬停显示完整数值；热力图自适应设置页宽度，默认无需横向拖动。 |
@@ -61,13 +62,15 @@ dsh plugin --profile web add ./dsh-token-usage
 
 - **概览卡片**：总 Token、输入 Token、输出 Token、缓存命中率和有用量会话数。
 - **周期趋势**：切换 7/30/90 日窗口，查看当前周期总量、环比、活跃天数与峰值日。
-- **30 日预算**：预算写入本机 DSH settings；显示滚动消耗比例与超额提示，填 0 或清空可关闭。
-- **价格统计**：显示已覆盖路由的估算 USD 成本、按 Token 计算的费率覆盖率，以及每条模型路由的估算成本；未覆盖路由明确显示 `—`。
-- **AI Token 用量分析**：从已接入模型中手动选择一个模型，按需生成总量、估算费用、输入/输出/缓存、路由集中度、趋势、峰值、波动和优化建议报告。
+- **用量信号**：按最近 7 个完整 UTC 日计算日均和预计 30 日运行率；昨天的完整日会与此前 28 日至少 5 个活跃日的中位数/MAD 稳健基线比较，异常日可直接下钻会话。
+- **30 日预算**：预算写入本机 DSH settings；显示滚动消耗比例、当前运行率的 30 日预测和可能的预测超额，填 0 或清空可关闭。
+- **Agent 效率与归因**：显示模型尝试数、每次尝试 Token、每 100 次尝试压缩数、精确压缩 Token 占比、缓存读取占输入、Top 1/Top 3 路由集中度及未归因比例。
+- **价格统计**：显示已覆盖路由的估算 USD 成本、缓存读取避免费用、按 Token 计算的费率覆盖率，以及每条模型路由的估算成本；未覆盖路由明确显示 `—`。
+- **AI Token 用量分析**：从已接入模型中手动选择一个模型，按需生成总量、精确压缩税、估算费用、输入/输出/缓存、路由集中度、趋势、峰值、波动和优化建议报告。
 - **Token 活跃度**：最近 30 周按天汇总的热力图；悬停方格查看缓存等明细，点击查看当天贡献会话。
-- **模型用量**：按 provider / model 汇总调用次数、总量、输入与输出；缓存读写作为输入的辅助明细展示。
-- **聚合导出**：导出不含会话标题和正文的版本化 JSON、每日 CSV 或模型 CSV；CSV 单元格防公式注入。
-- **会话记录**：搜索会话标题、会话 ID 或模型路由，并可从任一有用量会话启动轨迹智能分析。
+- **模型用量**：按 provider / model 汇总调用次数、总量、输入与输出；可按总 Token、已覆盖的估算费用、每次记录调用 Token 或缓存读取占输入排序。
+- **聚合导出**：导出不含会话标题和正文的 JSON v2（含压缩 bucket、公开费率覆盖和路由估算）、每日 CSV 或模型 CSV；模型 CSV 含已覆盖路由的费用/缓存避免费用，CSV 单元格防公式注入。
+- **会话记录**：搜索会话标题、会话 ID 或模型路由；初始最多显示 50 条，可渐进展开，并可直接打开会话或启动轨迹智能分析。
 
 ### 统计口径
 
@@ -75,10 +78,20 @@ dsh plugin --profile web add ./dsh-token-usage
 | --- | --- |
 | 输入 Token | `uncachedInputTokens + cacheReadTokens + cacheWriteTokens` |
 | 总 Token | 输入 Token + `outputTokens` |
-| 缓存命中率 | `cacheReadTokens / 输入 Token` |
+| 缓存读取占输入 | `cacheReadTokens / 输入 Token`；这是 Token 结构比例，不是请求级缓存命中率 |
 | 输出 Token | 使用 provider 上报的 `outputTokens`；不另加 `reasoningTokens` |
+| 压缩 Token | 所有 `compaction/summary` provider usage 的四个 bucket 之和；与普通模型尝试分别计数 |
+| 每次模型尝试 Token | `(总 Token - 压缩 Token) / assistantRequests`；重试是独立尝试。若存在未归因旧用量，因缺少对应尝试次数而不显示该比率。 |
 
 同一请求步骤若先后出现流式 usage 与最终消息 usage，最终值会替换该步骤的临时值，避免重复记账；发生 `llm/retry` 后，每个重试尝试仍会被独立统计。
+
+## 📈 运行率、异常与 Agent 效率
+
+- **运行率**：仅使用最近 7 个完整 UTC 日（不包含尚未结束的今天）计算日均，再乘以 30 得到滚动 30 日预测；它是 Token 运行率，不是账单预测。
+- **预算预测**：仅在已开启 Token 预算时比较预测值和预算。当前已超额与“按当前运行率将超额”会分别提示，不会自动阻止模型调用。
+- **异常检测**：将昨天这个完整 UTC 日与此前 28 日内的活跃完整日比较。至少需要 5 个活跃基线日；使用活跃日中位数和 MAD，MAD 为 0 时采用 3×中位数阈值。异常提示会显示绝对超量和倍数，并可下钻现有的按日会话贡献。
+- **效率/集中度**：Top 1/Top 3 是全部 Token 的路由份额；未归因用量会单独披露。每次模型尝试 Token 从可归因总量扣除精确压缩 Token 后计算，重试属于独立尝试。
+- **会话工作流**：会话名称可直接打开当前仍在列表内的会话；若会话在点击前消失，保持设置页面并显示失败原因。初始列表只渲染 50 行，聚合统计仍覆盖全部会话。
 
 ## 💵 公开价格统计
 
@@ -93,9 +106,11 @@ dsh plugin --profile web add ./dsh-token-usage
 ```
 
 - 仅当 provider 和 model 均精确匹配内置表时才计价；转售、订阅、代理、自定义和未知路由绝不借用相似模型价格。
-- 费率覆盖率按已匹配路由的四类 Token / 全部四类 Token 计算；未覆盖 Token 不进入估算总额，页面会同时显示覆盖 Token 和有用量路由数。
+- 费率覆盖率按已匹配路由的四类 Token / 全部四类 Token 计算；未覆盖 Token 不进入估算总额，页面会同时显示覆盖 Token 和有用量路由数。它不是实际消费金额覆盖率，不能据此外推未知价格。
+- 缓存读取避免费用仅对已匹配路由计算：`cacheReadTokens × max(inputRate - cacheReadRate, 0) / 1M`；它比较同一静态公开表中的未缓存输入价，不是账单返还。
 - OpenAI 路由没有单独公开的 cache-write 费率时，cache-write 按普通输入费率估算；每条路由的悬停说明会显示所用四项费率与基准日。
-- 价格表与报告都只使用已持久化的聚合 bucket；不会新增会话正文、提示词或响应数据的收集。
+- 历史聚合会按当前内置静态表重估，不按事件发生日的历史价格还原；因此暂不提供 USD 预算。
+- 价格表、JSON v2/模型 CSV 和 AI 报告都只使用已持久化的聚合 bucket；不会新增会话正文、提示词或响应数据的收集。
 
 ## 🤖 AI Token 用量分析
 
@@ -105,7 +120,7 @@ dsh plugin --profile web add ./dsh-token-usage
 
 | 分析面 | 依据与输出 |
 | --- | --- |
-| 总量与结构 | 未缓存输入、输出、缓存读取和缓存写入的占比与变化。 |
+| 总量与结构 | 未缓存输入、输出、缓存读取和缓存写入的占比与变化，以及精确上下文压缩 Token 总量。 |
 | 路由贡献 | 按报告内 `route-N` 别名的 Token、对话次数和压缩次数识别集中度与高消耗路由；不向模型暴露原始路由名。 |
 | 时间趋势 | UTC 日粒度的活跃度、峰值与波动；长历史最多取最新 366 天进入模型证据。 |
 | 价格覆盖与不确定性 | 先披露静态公开 USD 费率的覆盖比例，再分析已覆盖路由的估算成本；不把估算当账单，也不为未知路由虚构价格、延迟、质量或因果。 |
@@ -113,7 +128,7 @@ dsh plugin --profile web add ./dsh-token-usage
 
 ### 聚合数据、隐私与费用
 
-- 用量分析只发送总 Token bucket、报告内 `route-N` 别名、对话/压缩次数、UTC 每日 bucket，以及内置表推导的覆盖率/估算 USD 与别名 route 成本；不会发送原始 provider/model、会话 ID、标题、提示词、回复、工具参数或其他会话正文。
+- 用量分析只发送总 Token bucket、精确压缩 Token bucket、报告内 `route-N` 别名、对话/压缩次数、UTC 每日 bucket，以及内置表推导的覆盖率/估算 USD/缓存读取避免费用与别名 route 成本；不会发送原始 provider/model、会话 ID、标题、提示词、回复、工具参数或其他会话正文。
 - 模型证据最多保留 Token 最大的 48 条路由记录与最新 366 条日期记录；总量仍来自完整仪表盘聚合。
 - 报告和辅助调用用量仅驻留当前页面内存，刷新后消失，不进入会话日志、projection cache 或任何导出文件。
 - 用户选择的 provider/model 会实际产生一次辅助模型调用；报告卡会显示该调用的 provider/model 与 Token 用量。用量分析最多生成 2,600 Token。
@@ -167,6 +182,12 @@ flowchart LR
 - Web 侧将所有会话 projection 聚合为仪表盘数据。较旧的内置 projection 会显示为“未归因用量”，以保持总量守恒。
 - 两类 AI 分析都走 loopback 私有 RPC，并只接受用户从已接入模型目录中选择的路由：用量分析只传聚合 DTO；轨迹分析由 Host 读取权威事件日志、构造内容无关的实际用量节点和有界白名单 DTO。Web 只接收 JSON 指标和 Markdown 报告。
 
+## 🔎 设计参考与取舍
+
+本插件吸收了主流 Agent 可观测性产品对 Token、成本、缓存和聚合趋势的做法，例如 [LangSmith cost tracking](https://docs.langchain.com/langsmith/cost-tracking)、[OpenAI Agents SDK usage](https://openai.github.io/openai-agents-python/usage/)、[Langfuse token/cost tracking](https://python-sdk-v2.docs-snapshot.langfuse.com/docs/observability/features/token-and-cost-tracking/) 和 [Phoenix LLM metrics](https://arize.com/docs/phoenix/tracing/llm-traces/metrics)。预算和异常部分参考 [FinOps Budgeting](https://www.finops.org/framework/capabilities/budgeting/)、[Anomaly Management](https://www.finops.org/framework/capabilities/anomaly-management/) 与 [MAD 的稳健统计定义](https://itl.nist.gov/div898//software/dataplot/refman2/auxillar/mad.htm)。
+
+取舍是有意的：本地插件只持久化聚合 bucket、日期、匿名化 AI 分析证据和用户显式启动的会话轨迹元数据；不保存请求正文、逐请求日志、日期×模型交叉明细或人员/组织归因。现有投影没有日期×模型维度，因此异常日只支持会话贡献下钻，不声称模型级日归因。
+
 ## 🔄 更新与热加载
 
 | 改动类型 | 如何生效 |
@@ -192,6 +213,7 @@ npm run build
 - 历史预热依赖 DSH session projection cache。预热完成前，仅有内置 projection 的旧会话会被显示为“未归因用量”；刷新后可读取新的模型明细。
 - 单个损坏或不可读取的历史会话只会记录警告，不会阻止插件启动。
 - 热力图按持久事件的 UTC 日期统计；旧版内置 projection 缺少逐日数据时，会暂按会话最后活动日归档。
+- 运行率是最近 7 个完整 UTC 日的简单 Token 日均；异常检测需要昨天有记录且此前 28 日至少 5 个活跃日，不足基线时不报告“正常”。预测和异常不会做模型级逐日归因。
 - 轨迹报告是模型辅助的资源效率解释，不是策略执行器或合规证明；确定性节点、provider bucket 和对账结果优先于模型推断。
 - provider 当前不提供系统、用户、历史、检索、工具和子代理输入的独立 Token bucket，因此这些细分不会估算；超长元数据轨迹的中段会明确标为不可用。
 - 插件不建设人员、团队、部门、组织、成本中心或行为画像维度；AI 用量报告和轨迹报告当前不持久化、不支持历史对比。

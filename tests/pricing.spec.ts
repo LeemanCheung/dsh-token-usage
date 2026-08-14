@@ -35,6 +35,7 @@ describe('public Token price estimates', () => {
     expect(summary).toMatchObject({
       currency: 'USD',
       totalCostUSD: 2.525,
+      cacheReadSavingsUSD: 0.225,
       coveredTokens: 4_000_000,
       totalTokens: 4_001_000,
       coveredModels: 1,

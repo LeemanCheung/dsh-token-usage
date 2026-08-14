@@ -83,6 +83,7 @@ interface UsageAnalysisEvidence extends TokenUsageAnalysisInput {
     catalogAsOf: string
     currency: 'USD'
     estimatedCostUSD: number
+    cacheReadSavingsUSD: number
     coveredTokens: number
     totalTokens: number
     coveredModels: number
@@ -98,12 +99,14 @@ export function usageAnalysisEvidence(input: TokenUsageAnalysisInput): UsageAnal
   const rankedCosts = tokenUsageCostSummary(ranked)
   return {
     usage: copyUsage(input.usage),
+    compactionUsage: copyUsage(input.compactionUsage),
     models: modelEvidence(ranked),
     days: dailyEvidence(input.days),
     pricing: {
       catalogAsOf: PUBLIC_PRICE_CATALOG_AS_OF,
       currency: 'USD',
       estimatedCostUSD: totalCost.totalCostUSD,
+      cacheReadSavingsUSD: totalCost.cacheReadSavingsUSD,
       coveredTokens: totalCost.coveredTokens,
       totalTokens: totalCost.totalTokens,
       coveredModels: totalCost.coveredModels,
@@ -139,7 +142,7 @@ function systemPrompt(language: string): string {
   const sections = chinese
     ? '1. 用量与费用概览\n2. 输入、输出与缓存效率\n3. 模型与路由贡献\n4. 时间趋势、峰值与波动\n5. 价格覆盖、风险与不确定性\n6. 分级优化建议\n7. 后续观测重点'
     : '1. Usage and cost overview\n2. Input, output, and cache efficiency\n3. Model and route contribution\n4. Time trends, peaks, and volatility\n5. Price coverage, risks, and uncertainty\n6. Prioritized optimization recommendations\n7. Next measurement focus'
-  return `You are a senior LLM FinOps and performance analyst. Analyze aggregate DeepSeek Harness Token-usage evidence only.\n\nWrite concise Markdown in ${reportLanguage} with these exact top-level sections:\n${sections}\n\nRequirements:\n- Use only the supplied aggregate Token buckets, report-local route aliases, request counts, compaction counts, UTC daily records, and optional public USD price evidence. Do not claim to have session titles, prompts, responses, raw provider/model ids, latency, quality, invoices, or user intent.\n- State the evidence behind each material claim with an exact bucket, route alias, UTC date, count, trend, or provided cost field. Distinguish facts from hypotheses.\n- Explain uncached input, output, cache reads, and cache writes separately. Do not treat cache reads as free.\n- Treat estimatedCostUSD as a static public-rate estimate, never an invoice. State coverage before making a cost recommendation; do not price uncovered routes or infer prices from similar models.\n- Analyze concentration, compaction pressure, cache behavior, output-to-input balance, peaks, volatility, and changes in the supplied date coverage.\n- End the optimization section with 3-7 P0/P1/P2 recommendations. For each give evidence, expected Token-efficiency or cost benefit, confidence, and implementation effort.\n- When the evidence is insufficient, say what additional aggregate measurement would resolve it. Never invent savings, costs, or causal explanations.`
+  return `You are a senior LLM FinOps and performance analyst. Analyze aggregate DeepSeek Harness Token-usage evidence only.\n\nWrite concise Markdown in ${reportLanguage} with these exact top-level sections:\n${sections}\n\nRequirements:\n- Use only the supplied aggregate Token buckets, exact aggregate compaction Token usage, report-local route aliases, request counts, compaction counts, UTC daily records, and optional public USD price evidence. Do not claim to have session titles, prompts, responses, raw provider/model ids, latency, quality, invoices, or user intent.\n- State the evidence behind each material claim with an exact bucket, route alias, UTC date, count, trend, or provided cost field. Distinguish facts from hypotheses.\n- Explain uncached input, output, cache reads, and cache writes separately. Do not treat cache reads as free.\n- Treat estimatedCostUSD as a static public-rate estimate, never an invoice. cacheReadSavingsUSD is only the covered public-rate difference between cache-read and uncached input pricing, never a billing refund. State coverage before making a cost recommendation; do not price uncovered routes or infer prices from similar models.\n- Analyze concentration, compaction pressure, cache behavior, output-to-input balance, peaks, volatility, and changes in the supplied date coverage.\n- End the optimization section with 3-7 P0/P1/P2 recommendations. For each give evidence, expected Token-efficiency or cost benefit, confidence, and implementation effort.\n- When the evidence is insufficient, say what additional aggregate measurement would resolve it. Never invent savings, costs, or causal explanations.`
 }
 
 /** Analyze bounded aggregate Token usage through one user-selected model route. */

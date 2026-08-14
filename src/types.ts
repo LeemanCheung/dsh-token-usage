@@ -26,6 +26,8 @@ export interface DailyTokenUsageRecord {
 export interface TokenUsageRecorderProjection {
   assistantRequests: number
   compactionRequests: number
+  /** Exact provider-reported usage spent by context compaction summaries. */
+  compactionUsage: TokenUsageBuckets
   usage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
@@ -123,6 +125,8 @@ export interface TokenUsagePriceRate {
 /** One model aggregate with matched public pricing, when its exact route is covered. */
 export interface PricedModelTokenUsageRecord extends ModelTokenUsageRecord {
   totalCostUSD?: number
+  /** Estimated public-rate savings from cache-read pricing versus uncached input pricing. */
+  cacheReadSavingsUSD?: number
   rate?: TokenUsagePriceRate
 }
 
@@ -130,6 +134,8 @@ export interface PricedModelTokenUsageRecord extends ModelTokenUsageRecord {
 export interface TokenUsageCostSummary {
   currency: 'USD'
   totalCostUSD: number
+  /** Estimated public-rate savings achieved by priced cache reads. */
+  cacheReadSavingsUSD: number
   coveredTokens: number
   totalTokens: number
   coveredModels: number
@@ -146,6 +152,8 @@ export interface TokenUsageAnalysisModelSelection {
 /** Aggregate Token fields sent to an on-demand usage-analysis model call. */
 export interface TokenUsageAnalysisInput {
   usage: TokenUsageBuckets
+  /** Exact aggregate provider usage consumed by context compaction. */
+  compactionUsage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
 }

@@ -13,6 +13,7 @@ describe('aggregate Token usage analysis', () => {
   it('keeps only detached aggregate model and date evidence in bounded contribution order', () => {
     const input = {
       usage: usage(120, 30),
+      compactionUsage: usage(0),
       models: [
         { provider: 'small', model: 'model', assistantRequests: 1, compactionRequests: 0, usage: usage(1) },
         { provider: 'large', model: 'model', assistantRequests: 2, compactionRequests: 1, usage: usage(100, 10) },
@@ -48,6 +49,7 @@ describe('aggregate Token usage analysis', () => {
   it('keeps public cost evidence route-anonymous and marks partial coverage', () => {
     const evidence = usageAnalysisEvidence({
       usage: usage(1_000_000, 1_000_000),
+      compactionUsage: usage(0),
       models: [
         {
           provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
@@ -90,6 +92,7 @@ describe('aggregate Token usage analysis', () => {
 
     const result = await analyzeTokenUsage(ctx, {
       usage: usage(100, 20),
+      compactionUsage: usage(0),
       models: [{ provider: 'provider-a', model: 'model-a', assistantRequests: 2, compactionRequests: 0, usage: usage(100, 20) }],
       days: [{ date: '2026-08-14', usage: usage(100, 20) }],
     }, { provider: 'chosen', model: 'finops-model' }, 'en', new AbortController().signal)

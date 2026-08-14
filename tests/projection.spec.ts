@@ -64,12 +64,18 @@ describe('tokenUsageRecorder projection', () => {
     }
 
     try {
-      expect(definition.stateVersion).toBe(3)
+      expect(definition.stateVersion).toBe(4)
       expect(ctx.sessionProjections.restoreFloor(legacyCheckpoint)).toBe(0)
       const restored = ctx.sessionProjections.restore(legacyCheckpoint, events, 0)
       expect(restored.snapshot.values.tokenUsageRecorder).toMatchObject({
         assistantRequests: 2,
         compactionRequests: 0,
+        compactionUsage: {
+          uncachedInputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
         usage: {
           uncachedInputTokens: 18,
           outputTokens: 4,
@@ -77,7 +83,7 @@ describe('tokenUsageRecorder projection', () => {
           cacheWriteTokens: 0,
         },
       })
-      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 3, seq: 3 })
+      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 4, seq: 3 })
     } finally {
       unregister()
       await ctx.fiber.dispose()
@@ -147,6 +153,12 @@ describe('tokenUsageRecorder projection', () => {
     expect(view).toEqual({
       assistantRequests: 1,
       compactionRequests: 1,
+      compactionUsage: {
+        uncachedInputTokens: 20,
+        outputTokens: 5,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 0,
+      },
       usage: {
         uncachedInputTokens: 32,
         outputTokens: 9,
@@ -309,6 +321,12 @@ describe('tokenUsageRecorder projection', () => {
     expect(definition.view(state)).toEqual({
       assistantRequests: 2,
       compactionRequests: 0,
+      compactionUsage: {
+        uncachedInputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
       usage: {
         uncachedInputTokens: 18,
         outputTokens: 4,

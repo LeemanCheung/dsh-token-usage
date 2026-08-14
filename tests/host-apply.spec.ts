@@ -217,6 +217,7 @@ describe('host apply', () => {
       language: 'zh',
       input: {
         usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 },
+        compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
         models: [{
           provider: 'deepseek', model: 'chat', assistantRequests: 2, compactionRequests: 0,
           usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 1 },
@@ -226,7 +227,8 @@ describe('host apply', () => {
     }, signal) as { ok: boolean; value?: { model: { provider: string; model: string }; report: string } }
     const rejected = await handler?.('usage/analyze', {
       model: { provider: 'missing', model: 'route' }, language: 'zh', input: {
-        usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, models: [], days: [],
+        usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, models: [], days: [],
       },
     }, signal) as { ok: boolean }
 

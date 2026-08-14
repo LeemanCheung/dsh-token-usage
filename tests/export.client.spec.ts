@@ -3,6 +3,7 @@ import { dailyUsageCsv, modelUsageCsv, tokenUsageExport, tokenUsageJson, type Us
 
 const source: UsageExportSource = {
   usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },
+  compactionUsage: { uncachedInputTokens: 3, outputTokens: 1, cacheReadTokens: 1, cacheWriteTokens: 0 },
   models: [{
     provider: '=formula-provider',
     model: 'model, "quoted"',
@@ -22,11 +23,19 @@ describe('privacy-safe usage export', () => {
     const exported = tokenUsageExport(extended, '2026-08-14T12:00:00.000Z')
     const json = tokenUsageJson(extended, '2026-08-14T12:00:00.000Z')
 
-    expect(exported).toEqual({
-      schema: 'dsh-token-usage/export-v1',
+    expect(exported).toMatchObject({
+      schema: 'dsh-token-usage/export-v2',
       generatedAt: '2026-08-14T12:00:00.000Z',
       timezone: 'UTC',
       totals: source.usage,
+      compactionUsage: source.compactionUsage,
+      pricingCatalogAsOf: '2025-08-07',
+      pricing: {
+        totalCostUSD: 0,
+        cacheReadSavingsUSD: 0,
+        coveredTokens: 0,
+        totalTokens: 18,
+      },
       models: source.models,
       days: source.days,
     })
@@ -37,12 +46,31 @@ describe('privacy-safe usage export', () => {
     expect(source.usage.outputTokens).toBe(2)
   })
 
+  it('exports exact-route public cost and cache-read avoided cost without session data', () => {
+    const priced: UsageExportSource = {
+      usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+      compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      models: [{
+        provider: 'openai', model: 'gpt-5-mini', assistantRequests: 1, compactionRequests: 0,
+        usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
+      }],
+      days: [],
+    }
+
+    expect(tokenUsageExport(priced, '2026-08-14T12:00:00.000Z').pricing).toMatchObject({
+      totalCostUSD: 2.525,
+      cacheReadSavingsUSD: 0.225,
+      coveredTokens: 4_000_000,
+    })
+    expect(modelUsageCsv(priced)).toContain('openai,gpt-5-mini,1,0,1000000,1000000,1000000,1000000,3000000,4000000,2.525,0.225,2025-08-07')
+  })
+
   it('produces stable CSV with escaped and formula-neutralized route fields', () => {
     expect(dailyUsageCsv(source)).toBe([
       'date,uncachedInputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,inputTokens,totalTokens',
       '2026-08-14,10,2,5,1,16,18',
       '',
     ].join('\r\n'))
-    expect(modelUsageCsv(source)).toContain("'=formula-provider,\"model, \"\"quoted\"\"\",2,1,10,2,5,1,16,18")
+    expect(modelUsageCsv(source)).toContain("'=formula-provider,\"model, \"\"quoted\"\"\",2,1,10,2,5,1,16,18,,,")
   })
 })

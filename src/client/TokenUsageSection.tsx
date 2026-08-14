@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ObservableSnapshot, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ObservableSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type {
   DailyTokenUsageRecord,
   ModelTokenUsageRecord,
+  PricedModelTokenUsageRecord,
   TokenUsageAnalysis,
   TokenUsageAnalysisInput,
   TokenUsageAnalysisModel,
@@ -14,7 +15,8 @@ import type {
   TrajectoryAnalysis,
 } from '../types.ts'
 import type { TokenUsageBudgetSnapshot } from './budget-controller.ts'
-import { dailyContributors, periodInsight } from './analytics.ts'
+import { dailyAnomalyInsight, dailyContributors, periodInsight, runRateInsight } from './analytics.ts'
+import { usageEfficiencyInsight } from './efficiency.ts'
 import { dailyUsageCsv, modelUsageCsv, tokenUsageJson, type DownloadPort } from './export.ts'
 import { PUBLIC_PRICE_CATALOG_AS_OF, tokenUsageCostSummary } from '../pricing.ts'
 import type { TokenUsageAnalysisModelCatalog } from './usage-analysis-client.ts'
@@ -27,6 +29,7 @@ interface TokenUsageSectionInjected {
   }
   setBudget(value: number): Promise<void>
   download: DownloadPort
+  openSession(sessionId: SessionId): void
   listAnalysisModels(signal: AbortSignal): Promise<TokenUsageAnalysisModelCatalog>
   analyzeTokenUsage(
     input: TokenUsageAnalysisInput,
@@ -46,9 +49,12 @@ export type TokenUsageSectionProps = PropsRuntime<'settings.section'>
   & InjectFace<TokenUsageSectionInjected>
 
 interface SessionUsageRow {
-  id: string
+  id: SessionId
   title: string
   updatedAt: number
+  assistantRequests: number
+  compactionRequests: number
+  compactionUsage: TokenUsageBuckets
   usage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
@@ -56,12 +62,18 @@ interface SessionUsageRow {
 
 interface DashboardData {
   usage: TokenUsageBuckets
+  assistantRequests: number
+  compactionRequests: number
+  compactionUsage: TokenUsageBuckets
   sessions: SessionUsageRow[]
   models: ModelTokenUsageRecord[]
   days: DailyTokenUsageRecord[]
 }
 
 type InsightRange = 7 | 30 | 90
+type ModelSort = 'total' | 'cost' | 'tokensPerAttempt' | 'cacheReadShare'
+
+const SESSION_PAGE_SIZE = 50
 
 type TrajectoryAnalysisState =
   | { status: 'idle' }
@@ -130,6 +142,11 @@ function formatUSD(value: number): string {
   }).format(value)
 }
 
+/** Format a ratio without implying fractional measurement precision. */
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`
+}
+
 /** Compact a token count with a stable K/M/B suffix for dense dashboard cells. */
 function formatCompactTokens(value: number): string {
   const unit = [
@@ -162,6 +179,35 @@ function routeLabel(model: ModelTokenUsageRecord): string {
   return `${model.provider}/${model.model}`
 }
 
+/** Count every provider-recorded assistant or compaction attempt for one route. */
+function recordedAttempts(model: ModelTokenUsageRecord): number {
+  return model.assistantRequests + model.compactionRequests
+}
+
+/** Return the selected stable sort value for one model hotspot row. */
+function modelSortValue(model: PricedModelTokenUsageRecord, sort: ModelSort): number {
+  switch (sort) {
+    case 'total': return totalTokens(model.usage)
+    case 'cost': return model.totalCostUSD ?? -1
+    case 'tokensPerAttempt': {
+      const attempts = recordedAttempts(model)
+      return attempts === 0 ? -1 : totalTokens(model.usage) / attempts
+    }
+    case 'cacheReadShare': {
+      const input = inputTokens(model.usage)
+      return input === 0 ? -1 : model.usage.cacheReadTokens / input
+    }
+  }
+}
+
+/** Sort model hotspot rows deterministically without mutating cost-summary data. */
+function sortedModelHotspots(models: readonly PricedModelTokenUsageRecord[], sort: ModelSort): PricedModelTokenUsageRecord[] {
+  return models.slice().sort((left, right) => modelSortValue(right, sort) - modelSortValue(left, sort)
+    || totalTokens(right.usage) - totalTokens(left.usage)
+    || left.provider.localeCompare(right.provider)
+    || left.model.localeCompare(right.model))
+}
+
 /** Attribute a built-in projection fallback to an explicit dashboard remainder row. */
 function unattributedModel(usage: TokenUsageBuckets): ModelTokenUsageRecord {
   return {
@@ -190,9 +236,12 @@ function sessionRow(summary: SessionSummary): SessionUsageRow | null {
   const usage = recorded?.usage ?? (builtIn === undefined ? undefined : fallbackUsage(builtIn))
   if (usage === undefined || totalTokens(usage) === 0) return null
   return {
-    id: String(summary.id),
+    id: summary.id,
     title: summary.displayTitle,
     updatedAt: summary.updatedAt,
+    assistantRequests: recorded?.assistantRequests ?? 0,
+    compactionRequests: recorded?.compactionRequests ?? 0,
+    compactionUsage: recorded?.compactionUsage === undefined ? zeroBuckets() : { ...recorded.compactionUsage },
     usage,
     models: recorded?.models ?? [unattributedModel(usage)],
     days: recorded?.days ?? [{ date: dayKey(summary.updatedAt), usage }],
@@ -205,12 +254,18 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
   const models = new Map<string, ModelTokenUsageRecord>()
   const days = new Map<string, TokenUsageBuckets>()
   let usage = zeroBuckets()
+  let assistantRequests = 0
+  let compactionRequests = 0
+  let compactionUsage = zeroBuckets()
 
   for (const summary of summaries) {
     const row = sessionRow(summary)
     if (row === null) continue
     sessions.push(row)
     usage = addBuckets(usage, row.usage)
+    assistantRequests += row.assistantRequests
+    compactionRequests += row.compactionRequests
+    compactionUsage = addBuckets(compactionUsage, row.compactionUsage)
     for (const day of row.days) {
       days.set(day.date, addBuckets(days.get(day.date) ?? zeroBuckets(), day.usage))
     }
@@ -232,6 +287,9 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
   sessions.sort((left, right) => right.updatedAt - left.updatedAt)
   return {
     usage,
+    assistantRequests,
+    compactionRequests,
+    compactionUsage,
     sessions,
     models: [...models.values()].sort((left, right) =>
       totalTokens(right.usage) - totalTokens(left.usage)
@@ -244,9 +302,10 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
 }
 
 /** Return only detached aggregate buckets, route records, and UTC dates for AI usage analysis. */
-export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'models' | 'days'>): TokenUsageAnalysisInput {
+export function usageAnalysisInput(data: Pick<DashboardData, 'usage' | 'compactionUsage' | 'models' | 'days'>): TokenUsageAnalysisInput {
   return {
     usage: { ...data.usage },
+    compactionUsage: { ...data.compactionUsage },
     models: data.models.map(model => ({
       provider: model.provider,
       model: model.model,
@@ -468,6 +527,7 @@ function BudgetPanel({
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const insight = useMemo(() => periodInsight(days, 30), [days])
+  const runRate = useMemo(() => runRateInsight(days), [days])
   const used = totalTokens(insight.usage)
   const budget = snapshot.budget
   const enabled = budget > 0
@@ -503,6 +563,10 @@ function BudgetPanel({
           />
         </label>
       </div>
+      <p className={css.insightNote}>{t('budgetRunRate', {
+        average: formatCompactTokens(Math.round(runRate.averageDailyTokens)),
+        projected: formatCompactTokens(runRate.projectedThirtyDayTokens),
+      })}</p>
       {snapshot.status !== 'ready' ? <p className={css.insightNote}>{t('budgetUnavailable')}</p>
         : !enabled ? <p className={css.insightNote}>{t('budgetDisabled')}</p>
           : <>
@@ -511,7 +575,103 @@ function BudgetPanel({
               <strong>{t('budgetProgress', { used: formatCompactTokens(used), budget: formatCompactTokens(budget), percent: Math.round(ratio * 100) })}</strong>
             </div>
             {ratio > 1 ? <p className={css.budgetWarning}>{t('budgetExceeded', { excess: formatCompactTokens(used - budget) })}</p> : null}
+            {ratio <= 1 && runRate.projectedThirtyDayTokens > budget ? <p className={css.budgetWarning}>{t('budgetForecastExceeded', {
+              projected: formatCompactTokens(runRate.projectedThirtyDayTokens),
+              budget: formatCompactTokens(budget),
+            })}</p> : null}
           </>}
+    </div>
+  )
+}
+
+/** Render aggregate request efficiency, compaction overhead, and route concentration. */
+function EfficiencyPanel({
+  usage,
+  compactionUsage,
+  models,
+  t,
+}: {
+  usage: TokenUsageBuckets
+  compactionUsage: TokenUsageBuckets
+  models: readonly ModelTokenUsageRecord[]
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  const insight = useMemo(
+    () => usageEfficiencyInsight(usage, compactionUsage, models),
+    [usage, compactionUsage, models],
+  )
+  const top = insight.topRoutes[0]
+  const topThreeShare = insight.topRoutes.reduce((sum, route) => sum + route.share, 0)
+  return (
+    <div className={css.insights}>
+      <div className={css.blockHead}>
+        <div>
+          <h3>{t('efficiency')}</h3>
+          <p>{t('efficiencyIntro')}</p>
+        </div>
+      </div>
+      <div className={css.detailMetrics}>
+        <Metric label={t('assistantAttempts')} value={insight.assistantAttempts === 0 ? '—' : insight.assistantAttempts} />
+        <Metric label={t('tokensPerAssistantAttempt')} value={insight.tokensPerAssistantAttempt === undefined ? '—' : insight.tokensPerAssistantAttempt} />
+        <Metric label={t('compactionRate')} value={insight.compactionsPerHundredAssistantAttempts === undefined ? '—' : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(insight.compactionsPerHundredAssistantAttempts)} / 100`} />
+        <Metric label={t('compactionTokenShare')} value={insight.compactionTokenShare === undefined ? '—' : formatPercent(insight.compactionTokenShare)} />
+        <Metric label={t('cacheReadShare')} value={insight.cacheReadInputShare === undefined ? '—' : formatPercent(insight.cacheReadInputShare)} />
+        <Metric label={t('topRouteShare')} value={top === undefined ? '—' : formatPercent(top.share)} />
+      </div>
+      {top === undefined ? <p className={css.insightNote}>{t('noRouteAttribution')}</p>
+        : <p className={css.insightNote}>{t('routeConcentration', {
+          route: `${top.provider}/${top.model}`,
+          topOne: formatPercent(top.share),
+          topThree: formatPercent(topThreeShare),
+        })}</p>}
+      {insight.unattributedTokenShare > 0 ? <p className={css.insightNote}>{t('unattributedShare', { share: formatPercent(insight.unattributedTokenShare) })}</p> : null}
+    </div>
+  )
+}
+
+/** Render complete-day burn rate and robust recent spike signals. */
+function OperationsPanel({
+  days,
+  onSelectDate,
+  t,
+}: {
+  days: readonly DailyTokenUsageRecord[]
+  onSelectDate(date: string): void
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  const runRate = useMemo(() => runRateInsight(days), [days])
+  const anomaly = useMemo(() => dailyAnomalyInsight(days), [days])
+  return (
+    <div className={css.insights}>
+      <div className={css.blockHead}>
+        <div>
+          <h3>{t('usageSignals')}</h3>
+          <p>{t('usageSignalsIntro')}</p>
+        </div>
+      </div>
+      <div className={css.detailMetrics}>
+        <Metric label={t('dailyRunRate')} value={Math.round(runRate.averageDailyTokens)} />
+        <Metric label={t('projectedThirtyDayUsage')} value={runRate.projectedThirtyDayTokens} />
+        <Metric label={t('anomalyRatio')} value={anomaly === undefined ? '—' : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(anomaly.ratio)}×`} />
+        <Metric label={t('anomalyExcess')} value={anomaly === undefined ? '—' : anomaly.excessTokens} />
+      </div>
+      {anomaly === undefined ? <p className={css.insightNote}>{t('anomalyInsufficient')}</p>
+        : anomaly.status === 'normal' ? <p className={css.insightNote}>{t('anomalyNormal', {
+          date: anomaly.date,
+          baseline: formatCompactTokens(anomaly.baselineMedianTokens),
+          active: anomaly.activeBaselineDays,
+        })}</p>
+          : <div className={css.anomalyNotice}>
+            <p>{t('anomalyElevated', {
+              date: anomaly.date,
+              tokens: formatCompactTokens(anomaly.tokens),
+              baseline: formatCompactTokens(anomaly.baselineMedianTokens),
+              ratio: new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(anomaly.ratio),
+              excess: formatCompactTokens(anomaly.excessTokens),
+              active: anomaly.activeBaselineDays,
+            })}</p>
+            <button className={css.quietButton} type="button" onClick={() => { onSelectDate(anomaly.date) }}>{t('inspectAnomalyDay')}</button>
+          </div>}
     </div>
   )
 }
@@ -697,10 +857,12 @@ function TrajectoryAnalysisPanel({ state, t }: {
 
 /** Render durable Token usage across all listed sessions. */
 export function TokenUsageSection({
+  close,
   useSessions,
   useBudget,
   setBudget,
   download,
+  openSession,
   listAnalysisModels,
   analyzeTokenUsage,
   analyzeTrajectory,
@@ -711,8 +873,11 @@ export function TokenUsageSection({
   const byId = useSessions(state => state.byId)
   const budget = useBudget(snapshot => snapshot)
   const [query, setQuery] = useState('')
+  const [modelSort, setModelSort] = useState<ModelSort>('total')
+  const [sessionLimit, setSessionLimit] = useState(SESSION_PAGE_SIZE)
   const [range, setRange] = useState<InsightRange>(30)
   const [selectedDate, setSelectedDate] = useState<string>()
+  const [sessionOpenError, setSessionOpenError] = useState<string>()
   const [analysis, setAnalysis] = useState<TrajectoryAnalysisState>({ status: 'idle' })
   const [analysisCatalog, setAnalysisCatalog] = useState<AnalysisCatalogState>({ status: 'loading' })
   const [selectedAnalysisModel, setSelectedAnalysisModel] = useState<TokenUsageAnalysisModelSelection>()
@@ -762,6 +927,15 @@ export function TokenUsageSection({
     })
   }
 
+  const openUsageSession = (row: SessionUsageRow): void => {
+    try {
+      openSession(row.id)
+      close()
+    } catch (error) {
+      setSessionOpenError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const data = useMemo(
     () => aggregateUsage(ids.map(id => byId[id]).filter((value): value is SessionSummary => value !== undefined)),
     [byId, ids],
@@ -787,6 +961,10 @@ export function TokenUsageSection({
   const priceCoverage = costSummary.totalTokens === 0
     ? 0
     : Math.round(costSummary.coveredTokens / costSummary.totalTokens * 100)
+  const sortedModels = useMemo(
+    () => sortedModelHotspots(costSummary.models, modelSort),
+    [costSummary.models, modelSort],
+  )
 
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const filteredSessions = useMemo(() => data.sessions.filter(row => {
@@ -795,6 +973,10 @@ export function TokenUsageSection({
       || row.id.toLocaleLowerCase().includes(normalizedQuery)
       || row.models.some(model => routeLabel(model).toLocaleLowerCase().includes(normalizedQuery))
   }), [data.sessions, normalizedQuery])
+  const visibleSessions = useMemo(
+    () => filteredSessions.slice(0, sessionLimit),
+    [filteredSessions, sessionLimit],
+  )
   const selectedDay = useMemo(
     () => selectedDate === undefined ? undefined : data.days.find(day => day.date === selectedDate),
     [data.days, selectedDate],
@@ -824,11 +1006,14 @@ export function TokenUsageSection({
             <Metric label={t('outputTokens')} value={data.usage.outputTokens} />
             <Metric label={t('cacheHit')} value={cacheHit} />
             <Metric label={t('estimatedCost')} value={costSummary.coveredTokens === 0 ? '—' : formatUSD(costSummary.totalCostUSD)} />
+            <Metric label={t('cacheReadSavings')} value={costSummary.coveredTokens === 0 ? '—' : formatUSD(costSummary.cacheReadSavingsUSD)} />
             <Metric label={t('priceCoverage')} value={`${priceCoverage}%`} />
             <Metric label={t('sessions')} value={data.sessions.length} />
           </div>
 
           <PeriodInsights days={data.days} range={range} onRangeChange={setRange} t={t} />
+          <EfficiencyPanel usage={data.usage} compactionUsage={data.compactionUsage} models={data.models} t={t} />
+          <OperationsPanel days={data.days} onSelectDate={setSelectedDate} t={t} />
           <BudgetPanel days={data.days} snapshot={budget} setBudget={setBudget} t={t} />
           <div className={css.pricingNotice}>
             <strong>{t('pricingTitle')}</strong>
@@ -852,7 +1037,18 @@ export function TokenUsageSection({
           {selectedDay === undefined ? null : <DayDrilldown day={selectedDay} sessions={data.sessions} t={t} onClose={() => { setSelectedDate(undefined) }} />}
 
           <div className={css.block}>
-            <h3>{t('modelBreakdown')}</h3>
+            <div className={css.blockHead}>
+              <h3>{t('modelBreakdown')}</h3>
+              <label className={css.modelSort}>
+                <span>{t('modelSort')}</span>
+                <select aria-label={t('modelSort')} value={modelSort} onChange={(event) => { setModelSort(event.currentTarget.value as ModelSort) }}>
+                  <option value="total">{t('modelSortTotal')}</option>
+                  <option value="cost">{t('modelSortCost')}</option>
+                  <option value="tokensPerAttempt">{t('modelSortTokensPerAttempt')}</option>
+                  <option value="cacheReadShare">{t('modelSortCacheRead')}</option>
+                </select>
+              </label>
+            </div>
             {data.models.length === 0 ? <p className={css.status}>{t('unknownRoute')}</p> : (
               <div className={css.tableWrap}>
                 <table className={css.modelTable}>
@@ -867,7 +1063,7 @@ export function TokenUsageSection({
                     </tr>
                   </thead>
                   <tbody>
-                    {costSummary.models.map(model => (
+                    {sortedModels.map(model => (
                       <tr key={modelKey(model)}>
                         <td>{isUnattributed(model)
                           ? <strong>{t('unattributed')}</strong>
@@ -921,9 +1117,13 @@ export function TokenUsageSection({
                 value={query}
                 placeholder={t('search')}
                 aria-label={t('search')}
-                onChange={(event) => { setQuery(event.currentTarget.value) }}
+                onChange={(event) => {
+                  setQuery(event.currentTarget.value)
+                  setSessionLimit(SESSION_PAGE_SIZE)
+                }}
               />
             </div>
+            {sessionOpenError === undefined ? null : <p className={css.analysisErrorText}>{t('openSessionFailed', { message: sessionOpenError })}</p>}
             {filteredSessions.length === 0 ? <p className={css.status}>{t('emptySearch')}</p> : (
               <div className={css.tableWrap}>
                 <table className={css.sessionTable}>
@@ -939,9 +1139,9 @@ export function TokenUsageSection({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredSessions.map(row => (
+                    {visibleSessions.map(row => (
                       <tr key={row.id}>
-                        <td><strong title={row.id}>{row.title}</strong><span>{row.id}</span></td>
+                        <td><button className={css.sessionLink} type="button" title={row.id} onClick={() => { openUsageSession(row) }}>{row.title}</button><span>{row.id}</span></td>
                         <td>{new Intl.DateTimeFormat(undefined, {
                           dateStyle: 'medium',
                           timeStyle: 'short',
@@ -967,6 +1167,11 @@ export function TokenUsageSection({
                 </table>
               </div>
             )}
+            {filteredSessions.length > visibleSessions.length ? <button
+              className={css.quietButton}
+              type="button"
+              onClick={() => { setSessionLimit(current => current + SESSION_PAGE_SIZE) }}
+            >{t('showMoreSessions', { shown: visibleSessions.length, total: filteredSessions.length })}</button> : null}
           </div>
         </>
       )}

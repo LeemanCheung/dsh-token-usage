@@ -31,7 +31,7 @@ describe('client apply', () => {
     apply(ctx)
     await Promise.resolve()
 
-    expect(inject).toEqual(['slots', 'locale', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'sessions'])
     expect(registerLocale).toHaveBeenCalledTimes(1)
     expect(injectSlot).toHaveBeenCalledWith('settings.section', expect.any(Function))
     expect(registerSlot).toHaveBeenCalledWith(expect.objectContaining({
@@ -46,6 +46,7 @@ describe('client apply', () => {
         analyzeTrajectory: unknown
         analyzeTokenUsage: unknown
         listAnalysisModels: unknown
+        openSession: unknown
         setBudget: unknown
         download: unknown
       }
@@ -55,6 +56,7 @@ describe('client apply', () => {
       analyzeTrajectory: expect.any(Function),
       analyzeTokenUsage: expect.any(Function),
       listAnalysisModels: expect.any(Function),
+      openSession: expect.any(Function),
       setBudget: expect.any(Function),
       download: expect.any(Object),
     }))

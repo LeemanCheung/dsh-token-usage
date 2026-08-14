@@ -23,6 +23,25 @@ export interface PeriodInsight {
   peak: DailyTokenUsageRecord | undefined
 }
 
+/** Complete-UTC-day burn rate projected to a rolling 30-day period. */
+export interface RunRateInsight {
+  observedDays: number
+  averageDailyTokens: number
+  projectedThirtyDayTokens: number
+}
+
+/** A robust comparison of yesterday's complete usage with preceding active days. */
+export interface DailyAnomalyInsight {
+  date: string
+  tokens: number
+  baselineMedianTokens: number
+  baselineMadTokens: number
+  activeBaselineDays: number
+  ratio: number
+  excessTokens: number
+  status: 'normal' | 'elevated'
+}
+
 /** Detached zero buckets for analytics calculations. */
 function zeroBuckets(): TokenUsageBuckets {
   return {
@@ -94,6 +113,66 @@ export function periodInsight(
     previousUsage: aggregateDates(byDate, previousDates),
     activeDays: active.length,
     peak,
+  }
+}
+
+/** Return the median of a non-empty numeric list without retaining a source reference. */
+function median(values: readonly number[]): number {
+  const sorted = values.slice().sort((left, right) => left - right)
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1]! + sorted[middle]!) / 2
+    : sorted[middle]!
+}
+
+/** Aggregate one complete UTC day range ending before the current partial day. */
+function completeDaysEndingBefore(now: number, length: number): string[] {
+  return datesEndingOn(now - 86_400_000, length)
+}
+
+/** Project a 30-day run rate from the latest seven complete UTC calendar days. */
+export function runRateInsight(records: readonly DailyTokenUsageRecord[], now = Date.now()): RunRateInsight {
+  const byDate = new Map(records.map(record => [record.date, record.usage]))
+  const dates = completeDaysEndingBefore(now, 7)
+  const tokens = dates.reduce((sum, date) => sum + totalTokens(byDate.get(date) ?? zeroBuckets()), 0)
+  const averageDailyTokens = tokens / dates.length
+  return {
+    observedDays: dates.length,
+    averageDailyTokens,
+    projectedThirtyDayTokens: Math.round(averageDailyTokens * 30),
+  }
+}
+
+/** Detect an elevated latest complete UTC day using the preceding 28 days' active-day median and MAD. */
+export function dailyAnomalyInsight(
+  records: readonly DailyTokenUsageRecord[],
+  now = Date.now(),
+): DailyAnomalyInsight | undefined {
+  const byDate = new Map(records.map(record => [record.date, record.usage]))
+  const [date] = completeDaysEndingBefore(now, 1)
+  if (date === undefined) return undefined
+  const tokens = totalTokens(byDate.get(date) ?? zeroBuckets())
+  const baselineDates = datesEndingOn(now - 2 * 86_400_000, 28)
+  const activeBaseline = baselineDates
+    .map(baselineDate => totalTokens(byDate.get(baselineDate) ?? zeroBuckets()))
+    .filter(value => value > 0)
+  if (tokens === 0 || activeBaseline.length < 5) return undefined
+  const baselineMedianTokens = median(activeBaseline)
+  const baselineMadTokens = median(activeBaseline.map(value => Math.abs(value - baselineMedianTokens)))
+  const robustThreshold = baselineMadTokens === 0
+    ? baselineMedianTokens * 3
+    : baselineMedianTokens + 3 * 1.4826 * baselineMadTokens
+  const ratio = baselineMedianTokens === 0 ? 0 : tokens / baselineMedianTokens
+  const excessTokens = Math.max(0, tokens - baselineMedianTokens)
+  return {
+    date,
+    tokens,
+    baselineMedianTokens,
+    baselineMadTokens,
+    activeBaselineDays: activeBaseline.length,
+    ratio,
+    excessTokens,
+    status: tokens > robustThreshold ? 'elevated' : 'normal',
   }
 }
 

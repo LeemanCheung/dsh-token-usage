@@ -202,6 +202,7 @@ function props(
     useBudget: selector => selector({ status: 'ready', budget: 0 }),
     setBudget: async () => {},
     download: { save: () => {} },
+    openSession: () => {},
     listAnalysisModels: async () => ({
       models: [
         { provider: 'deepseek', providerName: 'DeepSeek', model: 'deepseek-chat', modelName: 'DeepSeek Chat' },
@@ -326,7 +327,7 @@ describe('TokenUsageSection', () => {
 
     expect(screen.getAllByText('估算费用（USD）')).toHaveLength(2)
     expect(screen.getByText('费率覆盖')).toBeTruthy()
-    expect(screen.getByText('100%')).toBeTruthy()
+    expect(screen.getAllByText('100%').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/2\.53/)).toHaveLength(2)
     expect(screen.getByTitle(/缓存读 \$0\.025/)).toBeTruthy()
   })
@@ -359,7 +360,7 @@ describe('TokenUsageSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'JSON 汇总' }))
     const exported = save.mock.calls[0]?.[2] as string
-    expect(exported).toContain('dsh-token-usage/export-v1')
+    expect(exported).toContain('dsh-token-usage/export-v2')
     expect(exported).not.toContain('热力图会话')
     expect(exported).not.toContain('session-activity')
   })
@@ -386,6 +387,17 @@ describe('TokenUsageSection', () => {
     expect(input).not.toHaveProperty('sessions')
     expect(JSON.stringify(input)).not.toContain('主要会话')
     expect(screen.getByText(/openai\/gpt-5-mini ·/)).toBeTruthy()
+  })
+
+  it('opens a selected session through the injected navigation callback before closing Settings', () => {
+    const openSession = vi.fn()
+    const close = vi.fn()
+    render(<TokenUsageSection {...props([first])} openSession={openSession} close={close} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '主要会话' }))
+
+    expect(openSession).toHaveBeenCalledWith('session-first')
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('runs trajectory analysis for a selected session through the chosen integrated route', async () => {
