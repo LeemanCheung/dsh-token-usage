@@ -7,6 +7,7 @@ import {
   type FinishReason,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
+import { AnalysisProgressTracker, type AnalysisProgressReporter } from './analysis-progress.ts'
 import type {
   DailyTokenUsageRecord,
   ModelTokenUsageRecord,
@@ -122,8 +123,10 @@ export async function analyzeTokenUsage(
   selection: TokenUsageAnalysisModelSelection,
   language: string,
   signal: AbortSignal,
+  onProgress?: AnalysisProgressReporter,
 ): Promise<TokenUsageAnalysis> {
   signal.throwIfAborted()
+  const progress = new AnalysisProgressTracker(MAX_ANALYSIS_TOKENS, onProgress)
   const evidence = usageAnalysisEvidence(input)
   const messages = [createUserMessage({
     content: [{
@@ -139,6 +142,7 @@ export async function analyzeTokenUsage(
   }, signal)
   signal.throwIfAborted()
   const assembler = new BlockAssembler()
+  progress.generating()
   for await (const chunk of preparedCall.stream({
     ...preparedCall.config,
     messages,
@@ -147,8 +151,10 @@ export async function analyzeTokenUsage(
   })) {
     signal.throwIfAborted()
     assembler.push(chunk)
+    progress.push(chunk)
   }
   signal.throwIfAborted()
+  progress.finalizing(assembler.usage)
   const terminalError = finishError(assembler.finish)
   if (terminalError !== undefined) throw terminalError
   const blocks = assembler.blocks()

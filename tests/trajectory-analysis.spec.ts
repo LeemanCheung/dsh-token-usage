@@ -61,7 +61,14 @@ describe('trajectory analysis', () => {
       maxToolLatencyMs: 15_000,
       retries: 1,
       approvalsAsked: 1,
+      approvalsResolved: 1,
+      approvalsAllowedOnce: 0,
+      approvalsAllowedAlways: 0,
       approvalsRejected: 1,
+      approvalsCancelled: 0,
+      approvalsUnavailable: 0,
+      unresolvedApprovals: 0,
+      orphanApprovalDecisions: 0,
       subagents: 1,
       modelSwitches: 0,
       openTurns: 0,
@@ -85,7 +92,11 @@ describe('trajectory analysis', () => {
       valueKind: 'actual',
       finality: 'authoritative',
     })])
-    expect(prepared.timeline).not.toContain('private-')
+    expect(prepared.timeline).toContain('"tool":"private-tool"')
+    expect(prepared.timeline).not.toContain('private-output')
+    expect(prepared.timeline).not.toContain('private-reply')
+    expect(prepared.timeline).not.toContain('private-argument')
+    expect(prepared.timeline).not.toContain('private-result')
     expect(prepared.timeline).not.toContain('assistant/chunk')
     expect(prepared.timeline).toContain('"failure":true')
     expect(prepared.truncated).toBe(false)
@@ -118,7 +129,10 @@ describe('trajectory analysis', () => {
       openSteps: 1,
       activeDurationMs: 60_000,
     })
-    expect(prepared.timeline).not.toContain('private-')
+    expect(prepared.timeline).toContain('"tool":"private-tool"')
+    expect(prepared.timeline).not.toContain('private-first')
+    expect(prepared.timeline).not.toContain('private-second')
+    expect(prepared.timeline).not.toContain('private-missing')
   })
 
   it('records a surface rewrite without recounting the replaced tool result', () => {
@@ -152,7 +166,8 @@ describe('trajectory analysis', () => {
     expect(prepared.metrics).toMatchObject({ toolCalls: 1, toolResults: 1, toolErrors: 0 })
     expect(prepared.timeline.match(/"type":"tool\/result"/g)).toHaveLength(1)
     expect(prepared.timeline).toContain('"type":"surface/rewrite"')
-    expect(prepared.timeline).not.toContain('private-')
+    expect(prepared.timeline).toContain('"tool":"private-tool"')
+    expect(prepared.timeline).not.toContain('private-call')
   })
 
   it('keeps failed-attempt usage and replaces successful provisional usage with final usage', () => {
@@ -247,7 +262,8 @@ describe('trajectory analysis', () => {
     expect(prepared.truncated).toBe(true)
     expect(prepared.timeline.length).toBeLessThanOrEqual(96_000)
     expect(prepared.timeline).toContain('trajectory/truncated')
-    expect(prepared.timeline).not.toContain('private-')
+    expect(prepared.timeline).toContain('"tool":"private-tool"')
+    expect(prepared.timeline).not.toContain('private-0')
   })
 
   it('bounds the complete model evidence when the deterministic span table is large', async () => {
@@ -300,7 +316,7 @@ describe('trajectory analysis', () => {
     ])
     const second = prepareTrajectory([
       event(0, 0, 'user/message', { content: 'person-b@example.com', source: { name: 'team-b' } }),
-      event(1, 1, 'tool/call', { turn: 1, step: 1, callId: 'two', name: 'internal-b', arguments: '{"path":"d:/b"}' }),
+      event(1, 1, 'tool/call', { turn: 1, step: 1, callId: 'two', name: 'internal-a', arguments: '{"path":"d:/b"}' }),
       event(2, 2, 'request/context', { provider: 'tenant-b', model: 'private-model-b' }),
       event(3, 3, 'llm/retry', { turn: 1, step: 1, retry: 1, failure: { code: 'person-b@example.com' } }),
       event(4, 4, 'turn/end', { turn: 1, reason: { kind: 'private-team-b' } }),
@@ -308,6 +324,33 @@ describe('trajectory analysis', () => {
     ])
 
     expect(second).toEqual(first)
+  })
+
+  it('audits approval outcomes, unresolved requests, and orphan decisions deterministically', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'approval/asked', { id: 'a', toolName: 'read' }),
+      event(1, 1, 'approval/decided', { id: 'a', outcome: 'allowed-once' }),
+      event(2, 2, 'approval/asked', { id: 'b', toolName: 'write' }),
+      event(3, 3, 'approval/decided', { id: 'b', outcome: 'allowed-always' }),
+      event(4, 4, 'approval/asked', { id: 'c', toolName: 'bash' }),
+      event(5, 5, 'approval/decided', { id: 'c', outcome: 'cancelled' }),
+      event(6, 6, 'approval/asked', { id: 'd', toolName: 'web' }),
+      event(7, 7, 'approval/decided', { id: 'd', outcome: 'unavailable' }),
+      event(8, 8, 'approval/asked', { id: 'e', toolName: 'edit' }),
+      event(9, 9, 'approval/decided', { id: 'orphan', outcome: 'rejected' }),
+    ])
+
+    expect(prepared.metrics).toMatchObject({
+      approvalsAsked: 5,
+      approvalsResolved: 4,
+      approvalsAllowedOnce: 1,
+      approvalsAllowedAlways: 1,
+      approvalsRejected: 1,
+      approvalsCancelled: 1,
+      approvalsUnavailable: 1,
+      unresolvedApprovals: 1,
+      orphanApprovalDecisions: 1,
+    })
   })
 
   it('uses the configured model with metadata-only evidence and returns its usage', async () => {
@@ -354,9 +397,15 @@ describe('trajectory analysis', () => {
     expect(modelEvidenceText).not.toContain('"spans"')
     expect(modelEvidenceText).toContain('"largestSpan"')
     expect(modelEvidence).not.toContain('private-session-id')
-    expect(modelEvidence).not.toContain('private-')
+    expect(modelEvidenceText).toContain('"tool":"private-tool"')
+    expect(modelEvidence).not.toContain('private-output')
+    expect(modelEvidence).not.toContain('private-reply')
+    expect(modelEvidence).not.toContain('private-argument')
+    expect(modelEvidence).not.toContain('private-result')
+    expect(modelEvidence).not.toContain('private-call')
+    expect(modelEvidence).not.toContain('private-approval')
     expect(result).toMatchObject({
-      schema: 'dsh-token-usage/trajectory-analysis-v1',
+      schema: 'dsh-token-usage/trajectory-analysis-v3',
       sessionId: 'private-session-id',
       model: { provider: 'configured', model: 'audit-model' },
       analysisUsage: { uncachedInputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },

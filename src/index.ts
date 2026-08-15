@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { TOKEN_USAGE_SETTINGS_NAMESPACE, type TokenUsageBudgetSettings } from './budget-settings.ts'
 import { tokenUsageRecorderProjectionDefinition } from './projection.ts'
 import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from './rpc.ts'
+import type { AnalysisProgressReporter, AnalysisProgressUpdate } from './analysis-progress.ts'
 import { analyzeTrajectory } from './trajectory-analysis.ts'
 import { analyzeTokenUsage } from './usage-analysis.ts'
 import type {
@@ -121,6 +122,11 @@ function dailyUsageFrom(payload: unknown): DailyTokenUsageRecord | undefined {
   return { date, usage }
 }
 
+/** Read one opaque request-local progress id. */
+function progressIdFrom(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9._~-]{8,96}$/.test(value) ? value : undefined
+}
+
 /** Read one bounded model route; the adapter verifies it authoritatively at call time. */
 function modelSelectionFrom(payload: unknown): TokenUsageAnalysisModelSelection | undefined {
   if (!isRecord(payload)) return undefined
@@ -134,13 +140,16 @@ function trajectoryAnalysisRequest(payload: unknown): {
   sessionId: SessionId
   language: string
   model: TokenUsageAnalysisModelSelection
+  progressId?: string
 } | undefined {
   if (!isRecord(payload)) return undefined
   const sessionId = text(payload.sessionId, 256)
   const language = text(payload.language, 32)
   const model = modelSelectionFrom(payload.model)
-  if (sessionId === undefined || language === undefined || model === undefined) return undefined
-  return { sessionId: SessionId(sessionId), language, model }
+  const progressId = payload.progressId === undefined ? undefined : progressIdFrom(payload.progressId)
+  if (sessionId === undefined || language === undefined || model === undefined
+    || (payload.progressId !== undefined && progressId === undefined)) return undefined
+  return { sessionId: SessionId(sessionId), language, model, ...progressId === undefined ? {} : { progressId } }
 }
 
 /** Read and validate one aggregate-only Token usage analysis request. */
@@ -148,12 +157,15 @@ function usageAnalysisRequest(payload: unknown): {
   input: TokenUsageAnalysisInput
   language: string
   model: TokenUsageAnalysisModelSelection
+  progressId?: string
 } | undefined {
   if (!isRecord(payload)) return undefined
   const language = text(payload.language, 32)
   const model = modelSelectionFrom(payload.model)
+  const progressId = payload.progressId === undefined ? undefined : progressIdFrom(payload.progressId)
   const input = payload.input
-  if (language === undefined || model === undefined || !isRecord(input)) return undefined
+  if (language === undefined || model === undefined || !isRecord(input)
+    || (payload.progressId !== undefined && progressId === undefined)) return undefined
   const usage = usageFrom(input.usage)
   const assistantRequests = input.assistantRequests === undefined ? undefined : count(input.assistantRequests)
   const compactionRequests = input.compactionRequests === undefined ? undefined : count(input.compactionRequests)
@@ -176,6 +188,7 @@ function usageAnalysisRequest(payload: unknown): {
   return {
     language,
     model,
+    ...progressId === undefined ? {} : { progressId },
     input: {
       usage,
       assistantRequests: assistantRequests ?? parsedModels.reduce((sum, model) => sum + model.assistantRequests, 0),
@@ -261,9 +274,41 @@ function isKnownModel(models: readonly TokenUsageAnalysisModel[], selection: Tok
   return models.some(model => model.provider === selection.provider && model.model === selection.model)
 }
 
+const MAX_ACTIVE_ANALYSIS_PROGRESS = 8
+
+interface ActiveAnalysisProgress {
+  startedAt: number
+  update: AnalysisProgressUpdate
+}
+
 /** Expose persistent preferences and explicit configured-model trajectory analysis to the local Web client. */
 function installRpc(ctx: Context): void {
   const budget = ctx.settings.register(BUDGET_NAMESPACE, BudgetSettingsSchema)
+  const activeProgress = new Map<string, ActiveAnalysisProgress>()
+  const withProgress = async <T>(
+    progressId: string | undefined,
+    run: (report: AnalysisProgressReporter | undefined) => Promise<T>,
+  ): Promise<T> => {
+    if (progressId === undefined) return run(undefined)
+    if (activeProgress.has(progressId)) throw new Error('Analysis progress id is already active.')
+    if (activeProgress.size >= MAX_ACTIVE_ANALYSIS_PROGRESS) throw new Error('Too many analyses are already running.')
+    const entry: ActiveAnalysisProgress = {
+      startedAt: Date.now(),
+      update: {
+        phase: 'preparing',
+        chunks: 0,
+        outputCharacters: 0,
+        estimatedOutputTokens: 0,
+        maximumOutputTokens: 0,
+      },
+    }
+    activeProgress.set(progressId, entry)
+    try {
+      return await run((update) => { entry.update = update })
+    } finally {
+      activeProgress.delete(progressId)
+    }
+  }
   let analysisRuntime: { llm: Context['llm']; signal: AbortSignal } | undefined
   ctx.plugin({
     name: 'token-usage-analysis-runtime',
@@ -315,6 +360,17 @@ function installRpc(ctx: Context): void {
           },
         }
       }
+      case TOKEN_USAGE_RPC_ENDPOINT.analysisProgress: {
+        const progressId = isRecord(payload) ? progressIdFrom(payload.progressId) : undefined
+        if (progressId === undefined) return rpcError('A valid analysis progress id is required.')
+        const entry = activeProgress.get(progressId)
+        return {
+          ok: true,
+          value: entry === undefined
+            ? { available: false }
+            : { available: true, elapsedMs: Math.max(0, Date.now() - entry.startedAt), ...entry.update },
+        }
+      }
       case TOKEN_USAGE_RPC_ENDPOINT.usageAnalyze: {
         const request = usageAnalysisRequest(payload)
         if (request === undefined) return rpcError('A valid aggregate Token usage payload, selected model, and language are required.')
@@ -324,7 +380,14 @@ function installRpc(ctx: Context): void {
         try {
           return {
             ok: true,
-            value: await analyzeTokenUsage({ llm: runtime.llm }, request.input, request.model, request.language, analysisSignal),
+            value: await withProgress(request.progressId, report => analyzeTokenUsage(
+              { llm: runtime.llm },
+              request.input,
+              request.model,
+              request.language,
+              analysisSignal,
+              report,
+            )),
           }
         } catch (error) {
           if (analysisSignal.aborted) throw error
@@ -338,26 +401,29 @@ function installRpc(ctx: Context): void {
         if (runtime?.llm === undefined) return rpcError('Trajectory analysis requires an available model service.')
         const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
         try {
-          const live = ctx.sessions.get(request.sessionId)
-          let events = live?.events
-          if (events === undefined) {
-            const persistence = ctx.get('sessionPersistence')
-            if (persistence === undefined) {
-              return rpcError('Trajectory analysis cannot read cold sessions because persistence is unavailable.')
-            }
-            events = (await persistence.inspect(request.sessionId, analysisSignal)).events
-          }
-          if (events.length === 0) return rpcError('This session has no trajectory events to analyze.')
           return {
             ok: true,
-            value: await analyzeTrajectory(
-              { llm: runtime.llm },
-              request.sessionId,
-              events,
-              request.model,
-              request.language,
-              analysisSignal,
-            ),
+            value: await withProgress(request.progressId, async report => {
+              const live = ctx.sessions.get(request.sessionId)
+              let events = live?.events
+              if (events === undefined) {
+                const persistence = ctx.get('sessionPersistence')
+                if (persistence === undefined) {
+                  throw new Error('Trajectory analysis cannot read cold sessions because persistence is unavailable.')
+                }
+                events = (await persistence.inspect(request.sessionId, analysisSignal)).events
+              }
+              if (events.length === 0) throw new Error('This session has no trajectory events to analyze.')
+              return analyzeTrajectory(
+                { llm: runtime.llm },
+                request.sessionId,
+                events,
+                request.model,
+                request.language,
+                analysisSignal,
+                report,
+              )
+            }),
           }
         } catch (error) {
           if (analysisSignal.aborted) throw error

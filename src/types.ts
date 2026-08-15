@@ -86,7 +86,14 @@ export interface TrajectoryMetrics {
   retries: number
   compactions: number
   approvalsAsked: number
+  approvalsResolved: number
+  approvalsAllowedOnce: number
+  approvalsAllowedAlways: number
   approvalsRejected: number
+  approvalsCancelled: number
+  approvalsUnavailable: number
+  unresolvedApprovals: number
+  orphanApprovalDecisions: number
   subagents: number
   modelSwitches: number
   openTurns: number
@@ -155,6 +162,17 @@ export interface TokenUsageAnalysisModelSelection {
   model: string
 }
 
+/** Live progress from one request-bound auxiliary model stream. */
+export interface TokenUsageAnalysisProgress {
+  phase: 'preparing' | 'generating' | 'finalizing'
+  elapsedMs: number
+  chunks: number
+  outputCharacters: number
+  estimatedOutputTokens: number
+  exactOutputTokens?: number
+  maximumOutputTokens: number
+}
+
 /** Aggregate Token fields sent to an on-demand usage-analysis model call. */
 export interface TokenUsageAnalysisInput {
   usage: TokenUsageBuckets
@@ -177,7 +195,7 @@ export interface TokenUsageAnalysis {
 
 /** One ephemeral configured-model review of a bounded DSH session trajectory. */
 export interface TrajectoryAnalysis {
-  schema: 'dsh-token-usage/trajectory-analysis-v1' | 'dsh-token-usage/trajectory-analysis-v2'
+  schema: 'dsh-token-usage/trajectory-analysis-v1' | 'dsh-token-usage/trajectory-analysis-v2' | 'dsh-token-usage/trajectory-analysis-v3'
   sessionId: string
   generatedAt: string
   model: { provider: string; model: string }

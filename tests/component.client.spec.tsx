@@ -148,7 +148,14 @@ function props(
       retries: 1,
       compactions: 0,
       approvalsAsked: 1,
+      approvalsResolved: 1,
+      approvalsAllowedOnce: 1,
+      approvalsAllowedAlways: 0,
       approvalsRejected: 0,
+      approvalsCancelled: 0,
+      approvalsUnavailable: 0,
+      unresolvedApprovals: 0,
+      orphanApprovalDecisions: 0,
       subagents: 1,
       modelSwitches: 1,
       openTurns: 0,
@@ -203,6 +210,7 @@ function props(
     useBudget: selector => selector({ status: 'ready', budget: 0 }),
     setBudget: async value => value,
     download: { save: () => {} },
+    saveTrajectoryAnalysis: () => {},
     openSession: () => {},
     listAnalysisModels: async () => ({
       models: [
@@ -538,11 +546,42 @@ describe('TokenUsageSection', () => {
       }),
       { provider: 'openai', model: 'gpt-5-mini' },
       expect.any(AbortSignal),
+      expect.any(Function),
     )
     const input = usageAnalyze.mock.calls[0]?.[0] as Record<string, unknown>
     expect(input).not.toHaveProperty('sessions')
     expect(JSON.stringify(input)).not.toContain('主要会话')
     expect(screen.getByText(/openai\/gpt-5-mini ·/)).toBeTruthy()
+  })
+
+  it('shows estimated model output progress while aggregate analysis is running', async () => {
+    let resolveAnalysis: ((value: Awaited<ReturnType<TokenUsageSectionProps['analyzeTokenUsage']>>) => void) | undefined
+    const analyzeTokenUsage: TokenUsageSectionProps['analyzeTokenUsage'] = async (_input, model, _signal, onProgress) => {
+      onProgress?.({
+        phase: 'generating',
+        elapsedMs: 1_200,
+        chunks: 3,
+        outputCharacters: 24,
+        estimatedOutputTokens: 6,
+        maximumOutputTokens: 2_600,
+      })
+      return new Promise(resolve => { resolveAnalysis = resolve })
+    }
+    render(<TokenUsageSection {...props([first])} analyzeTokenUsage={analyzeTokenUsage} />)
+
+    await screen.findByLabelText('分析模型')
+    fireEvent.click(screen.getByRole('button', { name: '生成用量分析' }))
+
+    expect(await screen.findByText('已返回约 6 / 2,600 Token')).toBeTruthy()
+    expect(screen.getByText('3 个流块 · 24 个字符')).toBeTruthy()
+    expect(document.querySelector('[aria-busy="true"]')).toBeTruthy()
+    resolveAnalysis?.({
+      schema: 'dsh-token-usage/usage-analysis-v1',
+      generatedAt: '2026-08-14T12:00:00.000Z',
+      model: { provider: 'deepseek', model: 'deepseek-chat' },
+      report: '# Done',
+    })
+    await waitFor(() => { expect(screen.getByText('# Done')).toBeTruthy() })
   })
 
   it('opens a selected session through the injected navigation callback before closing Settings', () => {
@@ -558,10 +597,16 @@ describe('TokenUsageSection', () => {
 
   it('runs trajectory analysis for a selected session through the chosen integrated route', async () => {
     const analyze = vi.fn(props([first]).analyzeTrajectory)
-    render(<TokenUsageSection {...props([first], analyze)} />)
+    const download = vi.fn()
+    const saveTrajectoryAnalysis = vi.fn()
+    render(<TokenUsageSection
+      {...props([first], analyze)}
+      download={{ save: download }}
+      saveTrajectoryAnalysis={saveTrajectoryAnalysis}
+    />)
 
     await waitFor(() => { expect(screen.getByLabelText('分析模型')).toBeTruthy() })
-    expect(screen.getByText('隐私：手动选择的模型只接收白名单元数据和 provider 上报 Token；不发送提示词、回复、原始 provider/model、工具名称/参数/结果、会话标题/ID 或个人与组织字段。')).toBeTruthy()
+    expect(screen.getByText(/所选模型只接收白名单元数据、工具名称、审批结果和 provider 上报 Token/)).toBeTruthy()
     expect(analyze).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))
 
@@ -571,12 +616,21 @@ describe('TokenUsageSection', () => {
       'session-first',
       { provider: 'deepseek', model: 'deepseek-chat' },
       expect.any(AbortSignal),
+      expect.any(Function),
     )
     expect(screen.getByText(/deepseek\/deepseek-chat ·/)).toBeTruthy()
-    expect(screen.getByText('本次分析 60 Token')).toBeTruthy()
+    expect(screen.getByText('本次分析 60 Token · 模型输出 20')).toBeTruthy()
     expect(screen.getByText('工具延迟（均值 / 最大）')).toBeTruthy()
     expect(screen.getByText('1.5s / 3s')).toBeTruthy()
-    expect(screen.getByText('model:1:1:0 · 190')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '合规控制' })).toBeTruthy()
+    expect(screen.getByTitle('model:1:1:0').textContent).toBe('190')
+    expect(saveTrajectoryAnalysis).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: '导出 Markdown 报告' }))
+    expect(download).toHaveBeenCalledWith(
+      'dsh-trajectory-analysis-2026-08-14T12-00-00-000Z.md',
+      'text/markdown;charset=utf-8',
+      expect.stringContaining('# 资源摘要'),
+    )
   })
 
   it('renders totals, model attribution, and filters session records', () => {
@@ -587,6 +641,8 @@ describe('TokenUsageSection', () => {
     expect(screen.getByText('未归因用量')).toBeTruthy()
     expect(screen.getByText('主要会话')).toBeTruthy()
     expect(screen.getByText('旧会话')).toBeTruthy()
+    const analysisHeader = screen.getByRole('columnheader', { name: '轨迹分析' })
+    expect(analysisHeader.parentElement?.firstElementChild).toBe(analysisHeader)
 
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索会话或模型' }), {
       target: { value: '主要' },

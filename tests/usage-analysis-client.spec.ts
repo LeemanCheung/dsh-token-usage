@@ -3,6 +3,7 @@ import {
   analysisModelCatalogOf,
   requestAnalysisModels,
   requestTokenUsageAnalysis,
+  tokenUsageAnalysisOf,
 } from '../src/client/usage-analysis-client.ts'
 
 const input = {
@@ -43,18 +44,31 @@ describe('usage analysis client', () => {
     })
   })
 
+  it('rejects an unrenderable report timestamp', () => {
+    expect(tokenUsageAnalysisOf({
+      schema: 'dsh-token-usage/usage-analysis-v1',
+      generatedAt: 'not-a-date',
+      model: { provider: 'deepseek', model: 'chat' },
+      report: '# Report',
+    })).toBeUndefined()
+  })
+
   it('uses loopback RPC endpoints with a selected route and aggregate payload', async () => {
-    const call = vi.fn(async (_channel: string, endpoint: string) => endpoint === 'analysis/models'
-      ? { ok: true as const, value: { models: [{ provider: 'deepseek', providerName: 'DeepSeek', model: 'chat', modelName: 'Chat' }] } }
-      : {
-          ok: true as const,
-          value: {
-            schema: 'dsh-token-usage/usage-analysis-v1',
-            generatedAt: '2026-08-14T00:00:00.000Z',
-            model: { provider: 'deepseek', model: 'chat' },
-            report: '# Report',
-          },
-        })
+    const call = vi.fn(async (_channel: string, endpoint: string) => {
+      if (endpoint === 'analysis/models') {
+        return { ok: true as const, value: { models: [{ provider: 'deepseek', providerName: 'DeepSeek', model: 'chat', modelName: 'Chat' }] } }
+      }
+      if (endpoint === 'analysis/progress') return { ok: true as const, value: { available: false } }
+      return {
+        ok: true as const,
+        value: {
+          schema: 'dsh-token-usage/usage-analysis-v1',
+          generatedAt: '2026-08-14T00:00:00.000Z',
+          model: { provider: 'deepseek', model: 'chat' },
+          report: '# Report',
+        },
+      }
+    })
     const connection = { isLoopback: true, rpc: { call } } as never
 
     await expect(requestAnalysisModels(connection, new AbortController().signal)).resolves.toMatchObject({ models: [{ model: 'chat' }] })
@@ -66,10 +80,13 @@ describe('usage analysis client', () => {
       new AbortController().signal,
     )).resolves.toMatchObject({ report: '# Report' })
     expect(call).toHaveBeenNthCalledWith(1, '/token-usage', 'analysis/models', {}, expect.any(AbortSignal))
-    expect(call).toHaveBeenNthCalledWith(2, '/token-usage', 'usage/analyze', {
+    const progressId = (call.mock.calls[1]?.[2] as { progressId: string }).progressId
+    expect(call).toHaveBeenNthCalledWith(2, '/token-usage', 'analysis/progress', { progressId }, expect.any(AbortSignal))
+    expect(call).toHaveBeenNthCalledWith(3, '/token-usage', 'usage/analyze', {
       input,
       model: { provider: 'deepseek', model: 'chat' },
       language: 'en',
+      progressId,
     }, expect.any(AbortSignal))
   })
 })

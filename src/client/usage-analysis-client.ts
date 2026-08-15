@@ -7,9 +7,11 @@ import type {
   TokenUsageAnalysisInput,
   TokenUsageAnalysisModel,
   TokenUsageAnalysisModelSelection,
+  TokenUsageAnalysisProgress,
   TokenUsageBuckets,
 } from '../types.ts'
 import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from '../rpc.ts'
+import { requestAnalysisWithProgress } from './analysis-progress-client.ts'
 
 /** One server-provided selectable-model catalog and its eligible default route. */
 export interface TokenUsageAnalysisModelCatalog {
@@ -87,6 +89,7 @@ export function tokenUsageAnalysisOf(value: unknown): TokenUsageAnalysis | undef
   if (!isRecord(value)
     || value.schema !== 'dsh-token-usage/usage-analysis-v1'
     || typeof value.generatedAt !== 'string'
+    || !Number.isFinite(Date.parse(value.generatedAt))
     || typeof value.report !== 'string'
     || !isRecord(value.model)
     || typeof value.model.provider !== 'string'
@@ -122,16 +125,15 @@ export async function requestTokenUsageAnalysis(
   model: TokenUsageAnalysisModelSelection,
   language: string,
   signal: AbortSignal,
+  onProgress?: (progress: TokenUsageAnalysisProgress) => void,
 ): Promise<TokenUsageAnalysis> {
   if (!connection.isLoopback) throw new Error('AI analysis is available only from the local DSH page.')
-  const result = await connection.rpc.call(
-    TOKEN_USAGE_RPC_CHANNEL,
+  return requestAnalysisWithProgress(
+    connection,
     TOKEN_USAGE_RPC_ENDPOINT.usageAnalyze,
     { input, model, language },
     signal,
+    tokenUsageAnalysisOf,
+    onProgress,
   )
-  if (!result.ok) throw new Error(result.error.message)
-  const analysis = tokenUsageAnalysisOf(result.value)
-  if (analysis === undefined) throw new Error('The Host returned an invalid Token usage analysis report.')
-  return analysis
 }

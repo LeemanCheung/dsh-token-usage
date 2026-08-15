@@ -404,6 +404,7 @@ describe('host apply', () => {
     const pending = handler?.('usage/analyze', {
       model: { provider: 'provider', model: 'model' },
       language: 'en',
+      progressId: 'progress-123',
       input: {
         usage: { uncachedInputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
         models: [],
@@ -411,11 +412,16 @@ describe('host apply', () => {
       },
     }, new AbortController().signal)
     await vi.waitFor(() => { expect(observedSignal).toBeInstanceOf(AbortSignal) })
+    await expect(handler?.('analysis/progress', { progressId: 'progress-123' }, new AbortController().signal)).resolves.toMatchObject({
+      ok: true,
+      value: { available: true, phase: 'generating', maximumOutputTokens: 2_600 },
+    })
 
     runtimeCleanup?.()
 
     await expect(pending).rejects.toThrow('token usage analysis service disposed')
     expect(observedSignal?.aborted).toBe(true)
+    await expect(handler?.('analysis/progress', { progressId: 'progress-123' }, new AbortController().signal)).resolves.toEqual({ ok: true, value: { available: false } })
   })
 
   it('cancels and drains history warming when its fiber is disposed', async () => {

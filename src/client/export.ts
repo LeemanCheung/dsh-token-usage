@@ -2,10 +2,13 @@ import type {
   DailyTokenUsageRecord,
   ModelTokenUsageRecord,
   PricedModelTokenUsageRecord,
+  TokenUsageAnalysis,
   TokenUsageBuckets,
   TokenUsageCostSummary,
+  TrajectoryAnalysis,
 } from '../types.ts'
 import { PUBLIC_PRICE_CATALOG_AS_OF, tokenUsageCostSummary } from '../pricing.ts'
+import { safeModelMarkdown } from './report-safety.ts'
 
 /** Narrow aggregate-only source accepted by the privacy-safe export Module. */
 export interface UsageExportSource {
@@ -145,6 +148,76 @@ export function modelUsageCsv(source: Pick<UsageExportSource, 'models'>): string
         model.rate?.asOf ?? '',
       ]),
   ])
+}
+
+/** Create a filesystem-safe UTC suffix without embedding session identity. */
+export function analysisReportFilename(kind: 'usage' | 'trajectory', generatedAt: string): string {
+  const timestamp = generatedAt.replaceAll(/[^0-9A-Za-z]+/g, '-').replaceAll(/^-|-$/g, '')
+  return `dsh-${kind}-analysis-${timestamp}.md`
+}
+
+/** Serialize one aggregate analysis as a portable Markdown report. */
+export function tokenUsageAnalysisMarkdown(analysis: TokenUsageAnalysis): string {
+  const auxiliary = analysis.analysisUsage === undefined
+    ? 'Unavailable'
+    : String(analysis.analysisUsage.uncachedInputTokens
+      + analysis.analysisUsage.outputTokens
+      + analysis.analysisUsage.cacheReadTokens
+      + analysis.analysisUsage.cacheWriteTokens)
+  const output = analysis.analysisUsage === undefined ? 'Unavailable' : String(analysis.analysisUsage.outputTokens)
+  return [
+    '# DSH Token Usage Analysis',
+    '',
+    `- Generated: ${analysis.generatedAt}`,
+    `- Model: ${analysis.model.provider}/${analysis.model.model}`,
+    `- Analysis tokens: ${auxiliary}`,
+    `- Model output tokens: ${output}`,
+    '',
+    '## Model Report',
+    '',
+    safeModelMarkdown(analysis.report),
+    '',
+  ].join('\n')
+}
+
+/** Serialize one trajectory analysis with deterministic technical-control evidence. */
+export function trajectoryAnalysisMarkdown(analysis: TrajectoryAnalysis): string {
+  const metrics = analysis.metrics
+  const auxiliary = analysis.analysisUsage === undefined
+    ? 'Unavailable'
+    : String(analysis.analysisUsage.uncachedInputTokens
+      + analysis.analysisUsage.outputTokens
+      + analysis.analysisUsage.cacheReadTokens
+      + analysis.analysisUsage.cacheWriteTokens)
+  const output = analysis.analysisUsage === undefined ? 'Unavailable' : String(analysis.analysisUsage.outputTokens)
+  return [
+    '# DSH Session Trajectory Analysis',
+    '',
+    `- Generated: ${analysis.generatedAt}`,
+    `- Model: ${analysis.model.provider}/${analysis.model.model}`,
+    `- Analysis tokens: ${auxiliary}`,
+    `- Model output tokens: ${output}`,
+    `- Evidence truncated: ${analysis.truncated ? 'yes' : 'no'}`,
+    '',
+    '## Deterministic Audit Summary',
+    '',
+    '| Control | Evidence |',
+    '| --- | ---: |',
+    `| Approval closure | ${metrics.approvalsResolved}/${metrics.approvalsAsked} |`,
+    `| Persistent approvals | ${metrics.approvalsAllowedAlways} |`,
+    `| Rejected/cancelled/unavailable | ${metrics.approvalsRejected + metrics.approvalsCancelled + metrics.approvalsUnavailable} |`,
+    `| Unresolved/orphan approval records | ${metrics.unresolvedApprovals}/${metrics.orphanApprovalDecisions} |`,
+    `| Orphan tool calls/results | ${metrics.orphanToolCalls}/${metrics.orphanToolResults} |`,
+    `| Open turns/steps | ${metrics.openTurns}/${metrics.openSteps} |`,
+    `| Accounting reconciliation | ${metrics.reconciliation.status} |`,
+    '',
+    '> This is a metadata-based technical-control review, not legal advice or compliance certification.',
+    '',
+    '## Model Report',
+    '',
+    safeModelMarkdown(analysis.report),
+    '',
+  ].join('\n')
 }
 
 /** Save text content through browser-native download primitives. */

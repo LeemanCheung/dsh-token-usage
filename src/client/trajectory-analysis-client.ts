@@ -4,13 +4,15 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type {
   SignedTokenUsageBuckets,
   TokenUsageAnalysisModelSelection,
+  TokenUsageAnalysisProgress,
   TokenUsageBuckets,
   TrajectoryAnalysis,
   TrajectoryMetrics,
   TrajectoryReconciliation,
   TrajectoryUsageSpan,
 } from '../types.ts'
-import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from '../rpc.ts'
+import { TOKEN_USAGE_RPC_ENDPOINT } from '../rpc.ts'
+import { requestAnalysisWithProgress } from './analysis-progress-client.ts'
 
 /** Return whether a wire value is an object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -111,9 +113,14 @@ const ADDITIVE_METRIC_KEYS = [
   'omittedContentEvents', 'toolResults', 'orphanToolCalls', 'orphanToolResults', 'averageToolLatencyMs',
   'maxToolLatencyMs', 'modelSwitches', 'openTurns', 'openSteps', 'activeDurationMs', 'activeTokensPerMinute',
 ] as const
+const COMPLIANCE_METRIC_KEYS = [
+  'approvalsResolved', 'approvalsAllowedOnce', 'approvalsAllowedAlways', 'approvalsCancelled',
+  'approvalsUnavailable', 'unresolvedApprovals', 'orphanApprovalDecisions',
+] as const
 
-/** Decode deterministic analysis metrics while tolerating older v1 additive fields. */
-function metricsOf(value: unknown, legacy: boolean): TrajectoryMetrics | undefined {
+/** Decode deterministic analysis metrics while tolerating older report schema fields. */
+function metricsOf(value: unknown, schema: TrajectoryAnalysis['schema']): TrajectoryMetrics | undefined {
+  const legacy = schema === 'dsh-token-usage/trajectory-analysis-v1'
   if (!isRecord(value)) return undefined
   const validNumber = (candidate: unknown): candidate is number =>
     typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0
@@ -122,6 +129,12 @@ function metricsOf(value: unknown, legacy: boolean): TrajectoryMetrics | undefin
   for (const key of ADDITIVE_METRIC_KEYS) {
     if (value[key] === undefined && legacy) additive[key] = 0
     else if (validNumber(value[key])) additive[key] = value[key]
+    else return undefined
+  }
+  const compliance: Record<string, number> = {}
+  for (const key of COMPLIANCE_METRIC_KEYS) {
+    if (value[key] === undefined && schema !== 'dsh-token-usage/trajectory-analysis-v3') compliance[key] = 0
+    else if (validNumber(value[key])) compliance[key] = value[key]
     else return undefined
   }
 
@@ -166,6 +179,7 @@ function metricsOf(value: unknown, legacy: boolean): TrajectoryMetrics | undefin
   return {
     ...Object.fromEntries(BASE_METRIC_KEYS.map(key => [key, value[key]])),
     ...additive,
+    ...compliance,
     usage,
     retryUsage,
     spans: decodedSpans,
@@ -178,15 +192,17 @@ function metricsOf(value: unknown, legacy: boolean): TrajectoryMetrics | undefin
 export function trajectoryAnalysisOf(value: unknown): TrajectoryAnalysis | undefined {
   if (!isRecord(value)
     || (value.schema !== 'dsh-token-usage/trajectory-analysis-v1'
-      && value.schema !== 'dsh-token-usage/trajectory-analysis-v2')
+      && value.schema !== 'dsh-token-usage/trajectory-analysis-v2'
+      && value.schema !== 'dsh-token-usage/trajectory-analysis-v3')
     || typeof value.sessionId !== 'string'
     || typeof value.generatedAt !== 'string'
+    || !Number.isFinite(Date.parse(value.generatedAt))
     || typeof value.truncated !== 'boolean'
     || typeof value.report !== 'string'
     || !isRecord(value.model)
     || typeof value.model.provider !== 'string'
     || typeof value.model.model !== 'string') return undefined
-  const metrics = metricsOf(value.metrics, value.schema === 'dsh-token-usage/trajectory-analysis-v1')
+  const metrics = metricsOf(value.metrics, value.schema)
   const auxiliary = value.analysisUsage === undefined ? undefined : bucketsOf(value.analysisUsage)
   if (metrics === undefined || (value.analysisUsage !== undefined && auxiliary === undefined)) return undefined
   return {
@@ -208,16 +224,15 @@ export async function requestTrajectoryAnalysis(
   model: TokenUsageAnalysisModelSelection,
   language: string,
   signal: AbortSignal,
+  onProgress?: (progress: TokenUsageAnalysisProgress) => void,
 ): Promise<TrajectoryAnalysis> {
   if (!connection.isLoopback) throw new Error('Trajectory analysis is available only from the local DSH page.')
-  const result = await connection.rpc.call(
-    TOKEN_USAGE_RPC_CHANNEL,
+  return requestAnalysisWithProgress(
+    connection,
     TOKEN_USAGE_RPC_ENDPOINT.trajectoryAnalyze,
     { sessionId, model, language },
     signal,
+    trajectoryAnalysisOf,
+    onProgress,
   )
-  if (!result.ok) throw new Error(result.error.message)
-  const analysis = trajectoryAnalysisOf(result.value)
-  if (analysis === undefined) throw new Error('The Host returned an invalid trajectory analysis report.')
-  return analysis
 }

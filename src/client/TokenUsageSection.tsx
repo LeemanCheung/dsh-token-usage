@@ -10,6 +10,7 @@ import type {
   TokenUsageAnalysisInput,
   TokenUsageAnalysisModel,
   TokenUsageAnalysisModelSelection,
+  TokenUsageAnalysisProgress,
   TokenUsageBuckets,
   TokenUsageRecorderProjection,
   TrajectoryAnalysis,
@@ -17,10 +18,19 @@ import type {
 import type { TokenUsageBudgetSnapshot } from './budget-controller.ts'
 import { dailyAnomalyInsight, dailyContributors, periodInsight, runRateInsight } from './analytics.ts'
 import { usageEfficiencyInsight } from './efficiency.ts'
-import { dailyUsageCsv, modelUsageCsv, tokenUsageJson, type DownloadPort } from './export.ts'
+import {
+  analysisReportFilename,
+  dailyUsageCsv,
+  modelUsageCsv,
+  tokenUsageAnalysisMarkdown,
+  tokenUsageJson,
+  trajectoryAnalysisMarkdown,
+  type DownloadPort,
+} from './export.ts'
 import { PUBLIC_PRICE_CATALOG_AS_OF, PUBLIC_PRICE_CATALOG_URL, tokenUsageCostSummary } from '../pricing.ts'
 import type { TokenUsageAnalysisModelCatalog } from './usage-analysis-client.ts'
 import { NS } from './locales.ts'
+import { SafeMarkdownReport } from './SafeMarkdownReport.tsx'
 import css from './TokenUsageSection.module.css'
 
 interface TokenUsageSectionInjected {
@@ -29,17 +39,20 @@ interface TokenUsageSectionInjected {
   }
   setBudget(value: number): Promise<number>
   download: DownloadPort
+  saveTrajectoryAnalysis(analysis: TrajectoryAnalysis): void
   openSession(sessionId: SessionId): void
   listAnalysisModels(signal: AbortSignal): Promise<TokenUsageAnalysisModelCatalog>
   analyzeTokenUsage(
     input: TokenUsageAnalysisInput,
     model: TokenUsageAnalysisModelSelection,
     signal: AbortSignal,
+    onProgress?: (progress: TokenUsageAnalysisProgress) => void,
   ): Promise<TokenUsageAnalysis>
   analyzeTrajectory(
     sessionId: string,
     model: TokenUsageAnalysisModelSelection,
     signal: AbortSignal,
+    onProgress?: (progress: TokenUsageAnalysisProgress) => void,
   ): Promise<TrajectoryAnalysis>
 }
 
@@ -78,9 +91,9 @@ type ModelSort = 'total' | 'cost' | 'tokensPerAttempt' | 'cacheReadShare'
 
 const SESSION_PAGE_SIZE = 50
 
-type TrajectoryAnalysisState =
+export type TrajectoryAnalysisState =
   | { status: 'idle' }
-  | { status: 'loading'; sessionId: string; title: string }
+  | { status: 'loading'; sessionId: string; title: string; progress?: TokenUsageAnalysisProgress }
   | { status: 'ready'; title: string; value: TrajectoryAnalysis }
   | { status: 'error'; sessionId: string; title: string; message: string }
 
@@ -91,7 +104,7 @@ type AnalysisCatalogState =
 
 type TokenUsageAnalysisState =
   | { status: 'idle' }
-  | { status: 'loading' }
+  | { status: 'loading'; progress?: TokenUsageAnalysisProgress }
   | { status: 'ready'; value: TokenUsageAnalysis }
   | { status: 'error'; message: string }
 
@@ -358,6 +371,20 @@ function Metric({ label, value }: { label: string; value: number | string }): Re
       <strong {...exact === undefined ? {} : { title: exact }}>{display}</strong>
     </div>
   )
+}
+
+/** Group related trajectory facts without promoting every number to a large card. */
+function AnalysisSummaryGroup({ title, rows }: {
+  title: string
+  rows: readonly { label: string; value: string; title?: string | undefined }[]
+}): ReactNode {
+  return <section className={css.analysisSummaryGroup}>
+    <h4>{title}</h4>
+    <dl>{rows.map(row => <div key={row.label}>
+      <dt>{row.label}</dt>
+      <dd title={row.title}>{row.value}</dd>
+    </div>)}</dl>
+  </section>
 }
 
 /** Render a compact table count with an exact-count tooltip. */
@@ -789,6 +816,59 @@ function analysisModelKey(model: TokenUsageAnalysisModelSelection): string {
   return `${model.provider}\u0000${model.model}`
 }
 
+/** Render one accessible indeterminate/stream-aware analysis progress surface. */
+function AnalysisLoading({
+  title,
+  message,
+  progress,
+  t,
+}: {
+  title: string
+  message: string
+  progress?: TokenUsageAnalysisProgress | undefined
+  t: TokenUsageSectionProps['t']
+}): ReactNode {
+  const stage = progress === undefined
+    ? t('analysisProgressPreparing')
+    : t(progress.phase === 'preparing'
+      ? 'analysisProgressPreparing'
+      : progress.phase === 'generating' ? 'analysisProgressGenerating' : 'analysisProgressFinalizing')
+  const output = progress === undefined || progress.maximumOutputTokens === 0
+    ? t('analysisProgressWaiting')
+    : progress.exactOutputTokens === undefined
+      ? t('analysisProgressEstimated', {
+          count: formatTokens(progress.estimatedOutputTokens),
+          maximum: formatTokens(progress.maximumOutputTokens),
+        })
+      : t('analysisProgressExact', {
+          count: formatTokens(progress.exactOutputTokens),
+          maximum: formatTokens(progress.maximumOutputTokens),
+        })
+  const value = progress?.exactOutputTokens ?? progress?.estimatedOutputTokens
+  const maximum = progress?.maximumOutputTokens ?? 0
+  return <div className={css.analysisLoading} aria-busy="true" aria-live="polite">
+    <div className={css.analysisSpinner} aria-hidden="true" />
+    <div className={css.analysisLoadingBody}>
+      <h3>{title}</h3>
+      <p>{message}</p>
+      <div className={css.analysisProgressMeta}>
+        <strong>{stage}</strong>
+        <span>{output}</span>
+        {progress === undefined ? null : <>
+          <span>{t('analysisProgressActivity', {
+            chunks: formatTokens(progress.chunks),
+            characters: formatTokens(progress.outputCharacters),
+          })}</span>
+          <span>{t('analysisProgressElapsed', { seconds: Math.max(1, Math.round(progress.elapsedMs / 1_000)) })}</span>
+        </>}
+      </div>
+      {maximum > 0 && value !== undefined
+        ? <progress max={maximum} value={Math.min(value, maximum)} aria-label={output} />
+        : <progress aria-label={output} />}
+    </div>
+  </div>
+}
+
 /** Render a manual integrated-model picker and one aggregate-only Token optimization report. */
 function UsageAnalysisPanel({
   catalog,
@@ -797,6 +877,7 @@ function UsageAnalysisPanel({
   onSelectModel,
   onRefreshCatalog,
   onAnalyze,
+  download,
   t,
 }: {
   catalog: AnalysisCatalogState
@@ -805,6 +886,7 @@ function UsageAnalysisPanel({
   onSelectModel(model: TokenUsageAnalysisModelSelection): void
   onRefreshCatalog(): void
   onAnalyze(): void
+  download: DownloadPort
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   if (catalog.status === 'loading') {
@@ -825,7 +907,7 @@ function UsageAnalysisPanel({
     </div>
   }
   const report = state.status === 'ready' ? state.value : undefined
-  const analysisTokens = report?.analysisUsage === undefined ? undefined : totalTokens(report.analysisUsage)
+  const analysisUsage = report?.analysisUsage
   return (
     <div className={css.analysisPanel}>
       <div className={css.blockHead}>
@@ -864,6 +946,12 @@ function UsageAnalysisPanel({
         disabled={state.status === 'loading'}
         onClick={onAnalyze}
       >{state.status === 'loading' ? t('usageAnalyzing') : t('analyzeUsage')}</button>
+      {state.status === 'loading' ? <AnalysisLoading
+        title={t('usageAnalysis')}
+        message={t('usageAnalysisRunning')}
+        progress={state.progress}
+        t={t}
+      /> : null}
       {state.status === 'error' ? <p className={css.analysisErrorText}>{t('usageAnalysisFailed', { message: state.message })}</p> : null}
       {report === undefined ? null : <>
         <div className={css.blockHead}>
@@ -875,36 +963,61 @@ function UsageAnalysisPanel({
               time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(report.generatedAt)),
             })}</p>
           </div>
-          {analysisTokens === undefined ? null : <span className={css.analysisCost}>{t('analysisCost', { total: formatTokens(analysisTokens) })}</span>}
+          <div className={css.analysisHeaderActions}>
+            {analysisUsage === undefined ? null : <span className={css.analysisCost}>{t('analysisCostDetailed', {
+              total: formatTokens(totalTokens(analysisUsage)),
+              output: formatTokens(analysisUsage.outputTokens),
+            })}</span>}
+            <button className={css.quietButton} type="button" onClick={() => {
+              download.save(
+                analysisReportFilename('usage', report.generatedAt),
+                'text/markdown;charset=utf-8',
+                tokenUsageAnalysisMarkdown(report),
+              )
+            }}>{t('exportAnalysisReport')}</button>
+          </div>
         </div>
-        <pre className={css.analysisReport}>{report.report}</pre>
+        <SafeMarkdownReport
+          report={report.report}
+          className={css.analysisReport}
+          copyLabel={t('copyCode')}
+          copiedLabel={t('copiedCode')}
+        />
       </>}
     </div>
   )
 }
 
 /** Render one ephemeral model-generated review and its deterministic measurements. */
-function TrajectoryAnalysisPanel({ state, t }: {
+export function TrajectoryAnalysisPanel({ state, download, t }: {
   state: TrajectoryAnalysisState
+  download: DownloadPort
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   if (state.status === 'idle') {
     return <div className={css.analysisEmpty}><h3>{t('trajectoryAnalysis')}</h3><p>{t('trajectoryAnalysisIntro')}</p></div>
   }
   if (state.status === 'loading') {
-    return <div className={css.analysisEmpty}><h3>{t('trajectoryAnalysis')}</h3><p>{t('analysisRunning', { title: state.title })}</p></div>
+    return <AnalysisLoading
+      title={t('trajectoryAnalysis')}
+      message={t('analysisRunning', { title: state.title })}
+      progress={state.progress}
+      t={t}
+    />
   }
   if (state.status === 'error') {
     return <div className={css.analysisError}><h3>{t('trajectoryAnalysis')}</h3><p>{t('analysisFailed', { message: state.message })}</p></div>
   }
   const analysis = state.value
   const metrics = analysis.metrics
-  const analysisTokens = analysis.analysisUsage === undefined ? undefined : totalTokens(analysis.analysisUsage)
+  const analysisUsage = analysis.analysisUsage
   const largestSpan = metrics.largestSpanId === undefined
     ? undefined
     : metrics.spans.find(span => span.id === metrics.largestSpanId)
   const reconciliationDelta = Object.values(metrics.reconciliation.delta)
     .reduce((total, value) => total + Math.abs(value), 0)
+  const deniedApprovals = metrics.approvalsRejected + metrics.approvalsCancelled + metrics.approvalsUnavailable
+  const approvalGaps = metrics.unresolvedApprovals + metrics.orphanApprovalDecisions
   return (
     <div className={css.analysisPanel}>
       <div className={css.blockHead}>
@@ -916,30 +1029,54 @@ function TrajectoryAnalysisPanel({ state, t }: {
             time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(analysis.generatedAt)),
           })}</p>
         </div>
-        {analysisTokens === undefined ? null : <span className={css.analysisCost}>{t('analysisCost', { total: formatTokens(analysisTokens) })}</span>}
+        <div className={css.analysisHeaderActions}>
+          {analysisUsage === undefined ? null : <span className={css.analysisCost}>{t('analysisCostDetailed', {
+            total: formatTokens(totalTokens(analysisUsage)),
+            output: formatTokens(analysisUsage.outputTokens),
+          })}</span>}
+          <button className={css.quietButton} type="button" onClick={() => {
+            download.save(
+              analysisReportFilename('trajectory', analysis.generatedAt),
+              'text/markdown;charset=utf-8',
+              trajectoryAnalysisMarkdown(analysis),
+            )
+          }}>{t('exportAnalysisReport')}</button>
+        </div>
       </div>
-      <div className={css.analysisMetrics}>
-        <Metric label={t('analysisTurns')} value={`${metrics.turnCount} / ${metrics.openTurns}`} />
-        <Metric label={t('analysisTools')} value={`${metrics.toolCalls} / ${metrics.toolResults} / ${metrics.toolErrors}`} />
-        <Metric label={t('analysisIntegrity')} value={`${metrics.orphanToolCalls + metrics.orphanToolResults} / ${metrics.openSteps}`} />
-        <Metric label={t('analysisToolLatency')} value={metrics.averageToolLatencyMs === 0
-          ? '—'
-          : `${formatLatency(metrics.averageToolLatencyMs)} / ${formatLatency(metrics.maxToolLatencyMs)}`} />
-        <Metric label={t('analysisRetries')} value={metrics.retries} />
-        <Metric label={t('analysisRetryTokens')} value={totalTokens(metrics.retryUsage)} />
-        <Metric label={t('analysisLargest')} value={largestSpan === undefined
-          ? '—'
-          : `${largestSpan.id} · ${formatTokens(totalTokens(largestSpan.usage))}`} />
-        <Metric label={t('analysisReconciliation')} value={metrics.reconciliation.status === 'matched'
-          ? t('analysisMatched')
-          : metrics.reconciliation.status === 'unavailable'
-            ? t('analysisUnavailable')
-            : t('analysisMismatch', { count: formatTokens(reconciliationDelta) })} />
-        <Metric label={t('analysisRate')} value={metrics.activeTokensPerMinute === 0 ? '—' : `${formatCompactTokens(metrics.activeTokensPerMinute)}/min`} />
-        <Metric label={t('analysisApprovals')} value={`${metrics.approvalsAsked} / ${metrics.approvalsRejected}`} />
+      <div className={css.analysisSummaryGrid}>
+        <AnalysisSummaryGroup title={t('analysisLifecycleGroup')} rows={[
+          { label: t('analysisTurns'), value: `${metrics.completedTurns}/${metrics.turnCount}`, title: t('analysisOpenCount', { count: metrics.openTurns }) },
+          { label: t('analysisSteps'), value: formatTokens(metrics.stepCount), title: t('analysisOpenCount', { count: metrics.openSteps }) },
+          { label: t('analysisRetries'), value: formatTokens(metrics.retries), title: t('analysisTokenCount', { count: formatTokens(totalTokens(metrics.retryUsage)) }) },
+        ]} />
+        <AnalysisSummaryGroup title={t('analysisToolGroup')} rows={[
+          { label: t('analysisTools'), value: `${metrics.toolCalls}/${metrics.toolResults}/${metrics.toolErrors}` },
+          { label: t('analysisIntegrity'), value: `${metrics.orphanToolCalls}/${metrics.orphanToolResults}` },
+          { label: t('analysisToolLatency'), value: metrics.averageToolLatencyMs === 0 ? '—' : `${formatLatency(metrics.averageToolLatencyMs)} / ${formatLatency(metrics.maxToolLatencyMs)}` },
+        ]} />
+        <AnalysisSummaryGroup title={t('analysisComplianceGroup')} rows={[
+          { label: t('analysisApprovalClosure'), value: `${metrics.approvalsResolved}/${metrics.approvalsAsked}` },
+          { label: t('analysisApprovalDenied'), value: formatTokens(deniedApprovals) },
+          { label: t('analysisApprovalPersistent'), value: formatTokens(metrics.approvalsAllowedAlways) },
+          { label: t('analysisAuditGaps'), value: formatTokens(approvalGaps) },
+        ]} />
+        <AnalysisSummaryGroup title={t('analysisEfficiencyGroup')} rows={[
+          { label: t('analysisRate'), value: metrics.activeTokensPerMinute === 0 ? '—' : `${formatCompactTokens(metrics.activeTokensPerMinute)}/min` },
+          { label: t('analysisLargest'), value: largestSpan === undefined ? '—' : formatCompactTokens(totalTokens(largestSpan.usage)), title: largestSpan?.id },
+          { label: t('analysisReconciliation'), value: metrics.reconciliation.status === 'matched'
+            ? t('analysisMatched')
+            : metrics.reconciliation.status === 'unavailable'
+              ? t('analysisUnavailable')
+              : t('analysisMismatch', { count: formatTokens(reconciliationDelta) }) },
+        ]} />
       </div>
       {analysis.truncated ? <p className={css.analysisWarning}>{t('analysisTruncated')}</p> : null}
-      <pre className={css.analysisReport}>{analysis.report}</pre>
+      <SafeMarkdownReport
+        report={analysis.report}
+        className={css.analysisReport}
+        copyLabel={t('copyCode')}
+        copiedLabel={t('copiedCode')}
+      />
       <p className={css.analysisPrivacy}>{t('analysisPrivacy')}</p>
     </div>
   )
@@ -952,6 +1089,7 @@ export function TokenUsageSection({
   useBudget,
   setBudget,
   download,
+  saveTrajectoryAnalysis,
   openSession,
   listAnalysisModels,
   analyzeTokenUsage,
@@ -1009,8 +1147,14 @@ export function TokenUsageSection({
     const controller = new AbortController()
     trajectoryController.current = controller
     setAnalysis({ status: 'loading', sessionId: row.id, title: row.title })
-    void analyzeTrajectory(row.id, selectedAnalysisModel, controller.signal).then((value) => {
+    void analyzeTrajectory(row.id, selectedAnalysisModel, controller.signal, (progress) => {
+      if (trajectoryController.current !== controller || controller.signal.aborted) return
+      setAnalysis(current => current.status === 'loading' && current.sessionId === row.id
+        ? { ...current, progress }
+        : current)
+    }).then((value) => {
       if (trajectoryController.current === controller && !controller.signal.aborted) {
+        saveTrajectoryAnalysis(value)
         setAnalysis({ status: 'ready', title: row.title, value })
       }
     }, (error: unknown) => {
@@ -1044,7 +1188,10 @@ export function TokenUsageSection({
     const controller = new AbortController()
     usageController.current = controller
     setUsageReport({ status: 'loading' })
-    void analyzeTokenUsage(usageAnalysisInput(data), selectedAnalysisModel, controller.signal).then((value) => {
+    void analyzeTokenUsage(usageAnalysisInput(data), selectedAnalysisModel, controller.signal, (progress) => {
+      if (usageController.current !== controller || controller.signal.aborted) return
+      setUsageReport(current => current.status === 'loading' ? { ...current, progress } : current)
+    }).then((value) => {
       if (usageController.current === controller && !controller.signal.aborted) {
         setUsageReport({ status: 'ready', value })
       }
@@ -1153,6 +1300,7 @@ export function TokenUsageSection({
             onSelectModel={setSelectedAnalysisModel}
             onRefreshCatalog={refreshAnalysisModels}
             onAnalyze={runUsageAnalysis}
+            download={download}
             t={t}
           />
           <div className={css.block}>
@@ -1226,7 +1374,7 @@ export function TokenUsageSection({
             )}
           </div>
 
-          <TrajectoryAnalysisPanel state={analysis} t={t} />
+          <TrajectoryAnalysisPanel state={analysis} download={download} t={t} />
 
           <div className={css.block}>
             <div className={css.blockHead}>
@@ -1249,18 +1397,26 @@ export function TokenUsageSection({
                 <table className={css.sessionTable}>
                   <thead>
                     <tr>
+                      <th>{t('analysis')}</th>
                       <th>{t('session')}</th>
                       <th>{t('updated')}</th>
                       <th>{t('routes')}</th>
                       <th>{t('total')}</th>
                       <th>{t('input')}</th>
                       <th>{t('output')}</th>
-                      <th>{t('analysis')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleSessions.map(row => (
                       <tr key={row.id}>
+                        <td>
+                          <button
+                            className={css.analysisButton}
+                            type="button"
+                            disabled={selectedAnalysisModel === undefined || (analysis.status === 'loading' && analysis.sessionId === row.id)}
+                            onClick={() => { runAnalysis(row) }}
+                          >{analysis.status === 'loading' && analysis.sessionId === row.id ? t('analyzing') : t('analyze')}</button>
+                        </td>
                         <td><button className={css.sessionLink} type="button" title={row.id} onClick={() => { openUsageSession(row) }}>{row.title}</button><span>{row.id}</span></td>
                         <td>{new Intl.DateTimeFormat(undefined, {
                           dateStyle: 'medium',
@@ -1273,14 +1429,6 @@ export function TokenUsageSection({
                         <td><TokenValue value={totalTokens(row.usage)} /></td>
                         <td><TokenValue value={inputTokens(row.usage)} /></td>
                         <td><TokenValue value={row.usage.outputTokens} /></td>
-                        <td>
-                          <button
-                            className={css.analysisButton}
-                            type="button"
-                            disabled={selectedAnalysisModel === undefined || (analysis.status === 'loading' && analysis.sessionId === row.id)}
-                            onClick={() => { runAnalysis(row) }}
-                          >{analysis.status === 'loading' && analysis.sessionId === row.id ? t('analyzing') : t('analyze')}</button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>

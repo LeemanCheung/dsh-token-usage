@@ -78,6 +78,37 @@ describe('trajectory analysis client decoder', () => {
     })
   })
 
+  it('defaults pre-v3 compliance metrics and requires the complete v3 audit set', () => {
+    expect(trajectoryAnalysisOf(report())?.metrics).toMatchObject({
+      approvalsResolved: 0,
+      approvalsAllowedOnce: 0,
+      approvalsAllowedAlways: 0,
+      approvalsCancelled: 0,
+      approvalsUnavailable: 0,
+      unresolvedApprovals: 0,
+      orphanApprovalDecisions: 0,
+    })
+    const current = report()
+    current.schema = 'dsh-token-usage/trajectory-analysis-v3'
+    Object.assign(current.metrics, {
+      approvalsResolved: 4,
+      approvalsAllowedOnce: 1,
+      approvalsAllowedAlways: 1,
+      approvalsCancelled: 1,
+      approvalsUnavailable: 1,
+      unresolvedApprovals: 2,
+      orphanApprovalDecisions: 1,
+    })
+    expect(trajectoryAnalysisOf(current)?.metrics).toMatchObject({
+      approvalsResolved: 4,
+      approvalsAllowedAlways: 1,
+      unresolvedApprovals: 2,
+      orphanApprovalDecisions: 1,
+    })
+    delete (current.metrics as Record<string, unknown>).approvalsResolved
+    expect(trajectoryAnalysisOf(current)).toBeUndefined()
+  })
+
   it('decodes an older v1 report with explicit unavailable reconciliation', () => {
     const legacy = report() as unknown as Record<string, unknown>
     legacy.schema = 'dsh-token-usage/trajectory-analysis-v1'
@@ -97,7 +128,10 @@ describe('trajectory analysis client decoder', () => {
     })
   })
 
-  it('rejects malformed reliability metrics at the wire boundary', () => {
+  it('rejects malformed timestamps or reliability metrics at the wire boundary', () => {
+    const invalidDate = report()
+    invalidDate.generatedAt = 'not-a-date'
+    expect(trajectoryAnalysisOf(invalidDate)).toBeUndefined()
     const value = report()
     value.metrics.orphanToolCalls = -1
     expect(trajectoryAnalysisOf(value)).toBeUndefined()
