@@ -6,5 +6,7 @@ export function safeModelMarkdown(markdown: string): string {
     .replace(/!\[([^\]]*)\]\[([^\]]*)\]/g, (_match, alt: string, reference: string) =>
       `[${alt.length === 0 ? 'image' : alt}][${reference}]`)
     .replace(/!\[([^\]]*)\]/g, (_match, alt: string) => alt.length === 0 ? 'image' : alt)
+    // A CommonMark image always starts with `![`; entity-encode any marker left by the readable rewrites above.
+    .replace(/!\[/g, '&#33;[')
     .replace(/<(?=[A-Za-z/!?])/g, '&lt;')
 }

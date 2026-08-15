@@ -114,8 +114,8 @@ const ADDITIVE_METRIC_KEYS = [
   'maxToolLatencyMs', 'modelSwitches', 'openTurns', 'openSteps', 'activeDurationMs', 'activeTokensPerMinute',
 ] as const
 const COMPLIANCE_METRIC_KEYS = [
-  'approvalsResolved', 'approvalsAllowedOnce', 'approvalsAllowedAlways', 'approvalsCancelled',
-  'approvalsUnavailable', 'unresolvedApprovals', 'orphanApprovalDecisions',
+  'approvalsResolved', 'approvalsAllowedOnce', 'approvalsCancelled', 'approvalsUnavailable',
+  'unresolvedApprovals', 'orphanApprovalDecisions',
 ] as const
 
 /** Decode deterministic analysis metrics while tolerating older report schema fields. */
@@ -179,6 +179,7 @@ function metricsOf(value: unknown, schema: TrajectoryAnalysis['schema']): Trajec
   return {
     ...Object.fromEntries(BASE_METRIC_KEYS.map(key => [key, value[key]])),
     ...additive,
+    completeComplianceEvidenceAvailable: schema === 'dsh-token-usage/trajectory-analysis-v3',
     ...compliance,
     usage,
     retryUsage,

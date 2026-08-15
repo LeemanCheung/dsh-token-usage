@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '../src/types.ts'
@@ -123,7 +123,7 @@ function translate(key: keyof typeof zh, params?: Record<string, unknown>): stri
 function props(
   summaries: readonly SessionSummary[] = [first, legacy],
   analyzeTrajectory: TokenUsageSectionProps['analyzeTrajectory'] = async sessionId => ({
-    schema: 'dsh-token-usage/trajectory-analysis-v2',
+    schema: 'dsh-token-usage/trajectory-analysis-v3',
     sessionId,
     generatedAt: '2026-08-14T12:00:00.000Z',
     model: { provider: 'deepseek', model: 'deepseek-chat' },
@@ -148,9 +148,9 @@ function props(
       retries: 1,
       compactions: 0,
       approvalsAsked: 1,
+      completeComplianceEvidenceAvailable: true,
       approvalsResolved: 1,
       approvalsAllowedOnce: 1,
-      approvalsAllowedAlways: 0,
       approvalsRejected: 0,
       approvalsCancelled: 0,
       approvalsUnavailable: 0,
@@ -623,6 +623,7 @@ describe('TokenUsageSection', () => {
     expect(screen.getByText('工具延迟（均值 / 最大）')).toBeTruthy()
     expect(screen.getByText('1.5s / 3s')).toBeTruthy()
     expect(screen.getByRole('heading', { name: '合规控制' })).toBeTruthy()
+    expect(screen.queryByText('永久允许')).toBeNull()
     expect(screen.getByTitle('model:1:1:0').textContent).toBe('190')
     expect(saveTrajectoryAnalysis).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: '导出 Markdown 报告' }))
@@ -631,6 +632,35 @@ describe('TokenUsageSection', () => {
       'text/markdown;charset=utf-8',
       expect.stringContaining('# 资源摘要'),
     )
+  })
+
+  it('retains legacy approval ask and reject counts while marking v3 audit fields unavailable', async () => {
+    const currentAnalyze = props([first]).analyzeTrajectory
+    const analyze: TokenUsageSectionProps['analyzeTrajectory'] = async (sessionId, model, signal, onProgress) => {
+      const value = await currentAnalyze(sessionId, model, signal, onProgress)
+      return {
+        ...value,
+        schema: 'dsh-token-usage/trajectory-analysis-v2',
+        metrics: {
+          ...value.metrics,
+          completeComplianceEvidenceAvailable: false,
+          approvalsAsked: 3,
+          approvalsRejected: 2,
+        },
+      }
+    }
+    render(<TokenUsageSection {...props([first], analyze)} />)
+
+    await screen.findByLabelText('分析模型')
+    fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))
+    const complianceHeading = await screen.findByRole('heading', { name: '合规控制' })
+    const compliance = within(complianceHeading.parentElement!)
+    expect(compliance.getByText('审批请求')).toBeTruthy()
+    expect(compliance.getByText('3')).toBeTruthy()
+    expect(compliance.getByText('拒绝决定')).toBeTruthy()
+    expect(compliance.getByText('2')).toBeTruthy()
+    expect(compliance.getByText('v3 审计字段')).toBeTruthy()
+    expect(compliance.getByText('旧版报告不可用')).toBeTruthy()
   })
 
   it('renders totals, model attribution, and filters session records', () => {

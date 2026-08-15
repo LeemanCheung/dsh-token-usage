@@ -87,6 +87,39 @@ describe('conversation trajectory analysis action', () => {
     expect(remove).toHaveBeenCalledWith('saved')
   })
 
+  it('aborts an in-flight analysis when the footer closes the modal', async () => {
+    let analysisSignal: AbortSignal | undefined
+    const props = {
+      sessionId: 'session-current',
+      useTrajectoryHistory: (selector: (snapshot: unknown) => unknown) => selector({ status: 'ready', entries: [] }),
+      download: { save: vi.fn() },
+      listAnalysisModels: async () => ({
+        models: [{ provider: 'deepseek', providerName: 'DeepSeek', model: 'chat', modelName: 'Chat' }],
+        failures: [],
+        default: { provider: 'deepseek', model: 'chat' },
+      }),
+      analyzeTrajectory: vi.fn((_sessionId: string, _model: unknown, signal: AbortSignal) => {
+        analysisSignal = signal
+        return new Promise<TrajectoryAnalysis>(() => {})
+      }),
+      saveTrajectoryAnalysis: vi.fn(),
+      removeTrajectoryAnalysis: vi.fn(),
+      t,
+    } as unknown as ComponentProps<typeof TrajectoryAnalysisAction>
+
+    render(<TrajectoryAnalysisAction {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: '会话 Token 轨迹分析' }))
+    expect(await screen.findByLabelText('分析模型')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))
+    const footerClose = screen.getAllByRole('button', { name: '关闭' })
+      .find(button => button.textContent?.trim() === '关闭')
+    expect(footerClose).toBeTruthy()
+    fireEvent.click(footerClose!)
+
+    expect(analysisSignal?.aborted).toBe(true)
+    expect(screen.queryByRole('dialog', { name: '当前会话轨迹分析' })).toBeNull()
+  })
+
   it('can retry a transient conversation model-catalog failure', async () => {
     const listAnalysisModels = vi.fn()
       .mockRejectedValueOnce(new Error('offline'))

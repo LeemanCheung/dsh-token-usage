@@ -1054,12 +1054,17 @@ export function TrajectoryAnalysisPanel({ state, download, t }: {
           { label: t('analysisIntegrity'), value: `${metrics.orphanToolCalls}/${metrics.orphanToolResults}` },
           { label: t('analysisToolLatency'), value: metrics.averageToolLatencyMs === 0 ? '—' : `${formatLatency(metrics.averageToolLatencyMs)} / ${formatLatency(metrics.maxToolLatencyMs)}` },
         ]} />
-        <AnalysisSummaryGroup title={t('analysisComplianceGroup')} rows={[
-          { label: t('analysisApprovalClosure'), value: `${metrics.approvalsResolved}/${metrics.approvalsAsked}` },
-          { label: t('analysisApprovalDenied'), value: formatTokens(deniedApprovals) },
-          { label: t('analysisApprovalPersistent'), value: formatTokens(metrics.approvalsAllowedAlways) },
-          { label: t('analysisAuditGaps'), value: formatTokens(approvalGaps) },
-        ]} />
+        <AnalysisSummaryGroup title={t('analysisComplianceGroup')} rows={metrics.completeComplianceEvidenceAvailable
+          ? [
+              { label: t('analysisApprovalClosure'), value: `${metrics.approvalsResolved}/${metrics.approvalsAsked}` },
+              { label: t('analysisApprovalDenied'), value: formatTokens(deniedApprovals) },
+              { label: t('analysisAuditGaps'), value: formatTokens(approvalGaps) },
+            ]
+          : [
+              { label: t('analysisApprovalRequests'), value: formatTokens(metrics.approvalsAsked) },
+              { label: t('analysisApprovalRejectedOnly'), value: formatTokens(metrics.approvalsRejected) },
+              { label: t('analysisComplianceEvidence'), value: t('analysisUnavailable') },
+            ]} />
         <AnalysisSummaryGroup title={t('analysisEfficiencyGroup')} rows={[
           { label: t('analysisRate'), value: metrics.activeTokensPerMinute === 0 ? '—' : `${formatCompactTokens(metrics.activeTokensPerMinute)}/min` },
           { label: t('analysisLargest'), value: largestSpan === undefined ? '—' : formatCompactTokens(totalTokens(largestSpan.usage)), title: largestSpan?.id },

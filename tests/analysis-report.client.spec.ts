@@ -11,7 +11,7 @@ import type { TokenUsageAnalysis, TrajectoryAnalysis } from '../src/types.ts'
 
 describe('analysis report presentation and export', () => {
   it('neutralizes inline, reference, and shortcut Markdown images without deleting labels', () => {
-    const markdown = '![chart](https://tracker.invalid/pixel.png)\n![diagram][ref]\n![]\n<img src="https://tracker.invalid/raw.png">\n<div style="background:url(https://tracker.invalid/css)">x</div>\n[ref]: https://tracker.invalid/ref.png'
+    const markdown = '![chart](https://tracker.invalid/pixel.png)\n![diagram][ref]\n![]\n![tracking \\]](https://tracker.invalid/escaped.png)\n![nested [label]](https://tracker.invalid/nested.png)\n<img src="https://tracker.invalid/raw.png">\n<div style="background:url(https://tracker.invalid/css)">x</div>\n[ref]: https://tracker.invalid/ref.png'
     const safe = safeModelMarkdown(markdown)
     expect(safe).not.toContain('![')
     expect(safe).toContain('[chart](https://tracker.invalid/pixel.png)')
@@ -46,6 +46,17 @@ describe('analysis report presentation and export', () => {
     expect(tokenUsageAnalysisMarkdown(usage)).toContain('# Usage findings')
     expect(tokenUsageAnalysisMarkdown(usage)).not.toContain('![pixel]')
     expect(trajectoryAnalysisMarkdown(trajectory)).toContain('metadata-based technical-control review')
+    expect(trajectoryAnalysisMarkdown(trajectory)).toContain('Persistent approval decisions | Not defined by ApprovalOutcome; session policy events excluded')
     expect(trajectoryAnalysisMarkdown(trajectory)).not.toContain('private-session-title')
+
+    const legacy: TrajectoryAnalysis = {
+      ...trajectory,
+      schema: 'dsh-token-usage/trajectory-analysis-v2',
+      metrics: { ...trajectory.metrics, completeComplianceEvidenceAvailable: false, approvalsAsked: 3, approvalsRejected: 2 },
+    }
+    expect(trajectoryAnalysisMarkdown(legacy)).toContain('Approval requests | 3')
+    expect(trajectoryAnalysisMarkdown(legacy)).toContain('Rejected decisions | 2')
+    expect(trajectoryAnalysisMarkdown(legacy)).toContain('v3 closure/categorized outcomes/audit gaps | Unavailable in this pre-v3 report')
+    expect(trajectoryAnalysisMarkdown(legacy)).not.toContain('| Approval closure |')
   })
 })

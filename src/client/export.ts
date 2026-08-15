@@ -190,6 +190,18 @@ export function trajectoryAnalysisMarkdown(analysis: TrajectoryAnalysis): string
       + analysis.analysisUsage.cacheReadTokens
       + analysis.analysisUsage.cacheWriteTokens)
   const output = analysis.analysisUsage === undefined ? 'Unavailable' : String(analysis.analysisUsage.outputTokens)
+  const approvalAuditRows = metrics.completeComplianceEvidenceAvailable
+    ? [
+        `| Approval closure | ${metrics.approvalsResolved}/${metrics.approvalsAsked} |`,
+        `| Rejected/cancelled/unavailable | ${metrics.approvalsRejected + metrics.approvalsCancelled + metrics.approvalsUnavailable} |`,
+        `| Unresolved/orphan approval records | ${metrics.unresolvedApprovals}/${metrics.orphanApprovalDecisions} |`,
+        '| Persistent approval decisions | Not defined by ApprovalOutcome; session policy events excluded |',
+      ]
+    : [
+        `| Approval requests | ${metrics.approvalsAsked} |`,
+        `| Rejected decisions | ${metrics.approvalsRejected} |`,
+        '| v3 closure/categorized outcomes/audit gaps | Unavailable in this pre-v3 report |',
+      ]
   return [
     '# DSH Session Trajectory Analysis',
     '',
@@ -203,10 +215,7 @@ export function trajectoryAnalysisMarkdown(analysis: TrajectoryAnalysis): string
     '',
     '| Control | Evidence |',
     '| --- | ---: |',
-    `| Approval closure | ${metrics.approvalsResolved}/${metrics.approvalsAsked} |`,
-    `| Persistent approvals | ${metrics.approvalsAllowedAlways} |`,
-    `| Rejected/cancelled/unavailable | ${metrics.approvalsRejected + metrics.approvalsCancelled + metrics.approvalsUnavailable} |`,
-    `| Unresolved/orphan approval records | ${metrics.unresolvedApprovals}/${metrics.orphanApprovalDecisions} |`,
+    ...approvalAuditRows,
     `| Orphan tool calls/results | ${metrics.orphanToolCalls}/${metrics.orphanToolResults} |`,
     `| Open turns/steps | ${metrics.openTurns}/${metrics.openSteps} |`,
     `| Accounting reconciliation | ${metrics.reconciliation.status} |`,

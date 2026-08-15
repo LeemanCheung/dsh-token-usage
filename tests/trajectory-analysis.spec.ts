@@ -61,9 +61,9 @@ describe('trajectory analysis', () => {
       maxToolLatencyMs: 15_000,
       retries: 1,
       approvalsAsked: 1,
+      completeComplianceEvidenceAvailable: true,
       approvalsResolved: 1,
       approvalsAllowedOnce: 0,
-      approvalsAllowedAlways: 0,
       approvalsRejected: 1,
       approvalsCancelled: 0,
       approvalsUnavailable: 0,
@@ -331,7 +331,7 @@ describe('trajectory analysis', () => {
       event(0, 0, 'approval/asked', { id: 'a', toolName: 'read' }),
       event(1, 1, 'approval/decided', { id: 'a', outcome: 'allowed-once' }),
       event(2, 2, 'approval/asked', { id: 'b', toolName: 'write' }),
-      event(3, 3, 'approval/decided', { id: 'b', outcome: 'allowed-always' }),
+      event(3, 3, 'approval/decided', { id: 'b', outcome: 'allowed-once' }),
       event(4, 4, 'approval/asked', { id: 'c', toolName: 'bash' }),
       event(5, 5, 'approval/decided', { id: 'c', outcome: 'cancelled' }),
       event(6, 6, 'approval/asked', { id: 'd', toolName: 'web' }),
@@ -343,11 +343,24 @@ describe('trajectory analysis', () => {
     expect(prepared.metrics).toMatchObject({
       approvalsAsked: 5,
       approvalsResolved: 4,
-      approvalsAllowedOnce: 1,
-      approvalsAllowedAlways: 1,
-      approvalsRejected: 1,
+      approvalsAllowedOnce: 2,
+      approvalsRejected: 0,
       approvalsCancelled: 1,
       approvalsUnavailable: 1,
+      unresolvedApprovals: 1,
+      orphanApprovalDecisions: 1,
+    })
+  })
+
+  it('does not misclassify a non-canonical approval outcome as persistent authorization', () => {
+    const prepared = prepareTrajectory([
+      event(0, 0, 'approval/asked', { id: 'a', toolName: 'write' }),
+      event(1, 1, 'approval/decided', { id: 'a', outcome: 'allowed-always' }),
+    ])
+
+    expect(prepared.metrics).toMatchObject({
+      approvalsAsked: 1,
+      approvalsResolved: 0,
       unresolvedApprovals: 1,
       orphanApprovalDecisions: 1,
     })

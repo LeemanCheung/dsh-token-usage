@@ -78,11 +78,16 @@ describe('trajectory analysis client decoder', () => {
     })
   })
 
-  it('defaults pre-v3 compliance metrics and requires the complete v3 audit set', () => {
-    expect(trajectoryAnalysisOf(report())?.metrics).toMatchObject({
+  it('retains pre-v3 ask/reject counts while requiring the complete v3 audit set', () => {
+    const legacy = report()
+    legacy.metrics.approvalsAsked = 3
+    legacy.metrics.approvalsRejected = 2
+    expect(trajectoryAnalysisOf(legacy)?.metrics).toMatchObject({
+      completeComplianceEvidenceAvailable: false,
+      approvalsAsked: 3,
+      approvalsRejected: 2,
       approvalsResolved: 0,
       approvalsAllowedOnce: 0,
-      approvalsAllowedAlways: 0,
       approvalsCancelled: 0,
       approvalsUnavailable: 0,
       unresolvedApprovals: 0,
@@ -93,15 +98,14 @@ describe('trajectory analysis client decoder', () => {
     Object.assign(current.metrics, {
       approvalsResolved: 4,
       approvalsAllowedOnce: 1,
-      approvalsAllowedAlways: 1,
       approvalsCancelled: 1,
       approvalsUnavailable: 1,
       unresolvedApprovals: 2,
       orphanApprovalDecisions: 1,
     })
     expect(trajectoryAnalysisOf(current)?.metrics).toMatchObject({
+      completeComplianceEvidenceAvailable: true,
       approvalsResolved: 4,
-      approvalsAllowedAlways: 1,
       unresolvedApprovals: 2,
       orphanApprovalDecisions: 1,
     })

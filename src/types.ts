@@ -86,9 +86,10 @@ export interface TrajectoryMetrics {
   retries: number
   compactions: number
   approvalsAsked: number
+  /** Whether v3 closure, categorized outcomes, and audit-gap evidence is available; older reports still retain ask/reject counts. */
+  completeComplianceEvidenceAvailable: boolean
   approvalsResolved: number
   approvalsAllowedOnce: number
-  approvalsAllowedAlways: number
   approvalsRejected: number
   approvalsCancelled: number
   approvalsUnavailable: number
