@@ -1113,6 +1113,14 @@ export function TokenUsageSection({
             <Metric label={t('sessions')} value={data.sessions.length} />
           </div>
 
+          <ActivityHeatmap days={data.days} selectedDate={selectedDate} onSelectDate={(date) => {
+            setOperationalDrilldown(false)
+            setSelectedDate(date)
+          }} t={t} />
+          {selectedDay === undefined ? null : <DayDrilldown day={selectedDay} sessions={selectedDaySessions} t={t} onClose={() => {
+            setSelectedDate(undefined)
+            setOperationalDrilldown(false)
+          }} />}
           <PeriodInsights days={data.days} range={range} onRangeChange={setRange} t={t} />
           <EfficiencyPanel
             usage={data.usage}
@@ -1147,15 +1155,6 @@ export function TokenUsageSection({
             onAnalyze={runUsageAnalysis}
             t={t}
           />
-          <ActivityHeatmap days={data.days} selectedDate={selectedDate} onSelectDate={(date) => {
-            setOperationalDrilldown(false)
-            setSelectedDate(date)
-          }} t={t} />
-          {selectedDay === undefined ? null : <DayDrilldown day={selectedDay} sessions={selectedDaySessions} t={t} onClose={() => {
-            setSelectedDate(undefined)
-            setOperationalDrilldown(false)
-          }} />}
-
           <div className={css.block}>
             <div className={css.blockHead}>
               <h3>{t('modelBreakdown')}</h3>
