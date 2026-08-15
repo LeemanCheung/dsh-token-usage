@@ -1,47 +1,87 @@
 # dsh-token-usage
 
 <p align="center">
-  <a href="https://awesome.re"><img src="https://awesome.re/badge.svg" alt="Awesome"></a>
-  <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek_Harness-plugin-2f6cff.svg" alt="DeepSeek Harness plugin"></a>
+  <img src="https://img.shields.io/badge/data-local--first-6f42c1.svg" alt="Local-first data">
+  <img src="https://img.shields.io/badge/AI_analysis-opt--in-f59e0b.svg" alt="Opt-in AI analysis">
+  <img src="https://img.shields.io/badge/privacy-allowlist-0f9d8a.svg" alt="Allowlist privacy">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f.svg" alt="MIT License"></a>
-  <a href="https://github.com/LeemanCheung/dsh-token-usage"><img src="https://img.shields.io/badge/DSH-plugin-2f6cff.svg" alt="DSH Plugin"></a>
 </p>
 
 <p align="center">
-  面向 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 的 Token 可观测性插件：持久统计模型用量，并让用户手动选择已接入模型按需生成用量和会话轨迹分析。
+  <strong>面向 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 的本地优先 Token 可观测性、预算与轨迹审计插件。</strong><br>
+  持久统计四类 provider Token bucket，提供趋势、预算、公开费率估算、聚合导出，并由用户手动选择已接入模型按需生成用量和会话轨迹报告。
 </p>
 
 <p align="center">
-  <img src="./assets/token-usage-settings.png" alt="DSH 设置页中的 Token 使用记录：统计卡、30 周热力图与模型用量表" width="100%">
+  <a href="#功能全景">功能全景</a> ·
+  <a href="#功能截图">功能截图</a> ·
+  <a href="#安装">安装</a> ·
+  <a href="#ai-token-用量分析">AI 用量分析</a> ·
+  <a href="#会话-token-轨迹分析">轨迹分析</a> ·
+  <a href="#已知限制">已知限制</a>
 </p>
-
-> 真实 DSH 设置页截图。截图仅展示聚合 Token 统计与模型路由，不包含会话标题、提示词或回复正文。
-
-## 🗺️ 功能概览
 
 <p align="center">
-  <img src="./assets/token-usage-dashboard.svg" alt="Token 使用记录功能示意：统计卡、30 周活跃度热力图、模型用量与隐私保护" width="100%">
+  <img src="./assets/token-usage-overview.png" alt="DSH Token 用量概览：八项指标、聚合导出、30 周热力图与周期趋势" width="800">
 </p>
 
-## ✨ 亮点
+> 截图采集自当前 DSH 界面；采集前已将用量、日期、路由与报告内容替换为明确标注的示例数据，不对应真实会话、模型配置或账单。
 
-| 能力 | 说明 |
+<a id="功能全景"></a>
+## 🗺️ 功能全景
+
+| 领域 | 已实现能力 |
 | --- | --- |
-| **完整 Token bucket** | 分别记录未缓存输入、输出、缓存读取与缓存写入；`reasoningTokens` 已包含在输出中，不重复计算。 |
-| **多维统计** | 以 provider / model、会话与 UTC 日期聚合普通对话、每次重试和上下文压缩用量。 |
-| **30 周热力图与下钻** | GitHub commit graph 风格的 Token 活跃度图；颜色越深代表当天总用量越高，悬停查看四类 bucket，点击下钻到当天贡献会话。 |
-| **可靠逐日数据保护** | 热力图和常规趋势保留全部历史总量；运行率、预算预测、异常和 AI 日趋势仅在所有会话均具有真实逐日 bucket 时启用，避免旧版合成日期造成低估。 |
-| **预算、预测、异常与导出** | 比较 7/30/90 日趋势，设置本地持久化的滚动 30 日预算，按最近 7 个完整 UTC 日预测 30 日运行率，并以稳健基线识别近期突增；导出聚合 JSON v2、每日 CSV 或模型 CSV。 |
-| **Agent 效率与归因** | 量化每次模型尝试 Token、每百次尝试压缩次数、精确上下文压缩 Token 占比、缓存结构、Top 路由集中度与未归因比例。 |
-| **AI 用量优化** | 手动选择任一已接入的 provider/model，对总量、压缩税、输入/输出/缓存、路由贡献、趋势和波动生成证据化分析；安全渲染 Markdown，可导出报告，并在生成时显示阶段、耗时和输出 Token 进度。 |
-| **轨迹 Token 分析** | 可从设置页会话列表或对话页会话标题旁直接启动同一分析流程，以白名单元数据分析调用链、重试、异常恢复、速率、压缩和 Token 效率。 |
-| **合规控制审计** | 确定性统计审批闭环、单次/永久允许、拒绝、取消、不可用、未闭合与孤立决策；模型报告区分已观测证据、风险假设和不可用证据，且不声称法律或认证结论。 |
-| **用量节点与对账** | 按模型调用尝试和上下文压缩生成稳定用量节点，标注 actual/provisional/authoritative，识别最大节点、重试 Token，并对账 provider 事件总量。 |
-| **报告与本地历史** | 两类 AI 报告以结构化 Markdown 展示并支持导出；轨迹报告最多 24 条保存在当前浏览器 `localStorage`，可按当前会话查看和删除。 |
-| **紧凑布局** | 使用 `K` / `M` / `B` 展示大数字，悬停显示完整数值；轨迹摘要改为生命周期、工具可靠性、合规控制和资源效率四组紧凑面板。 |
-| **历史预热** | 启动后顺序回放可读取的历史会话并写入 projection cache，不阻塞插件启动。 |
-| **隐私优先** | 持久 projection 只保存统计数据；轨迹模型证据可包含受限工具名称和审批结果，但从结构上省略提示词、回复、工具参数/结果、会话标题/ID以及个人或组织字段。 |
+| **精确记账** | 分别记录未缓存输入、输出、缓存读取与缓存写入；`reasoningTokens` 已包含在输出中，不重复计算。流式 usage 先作为临时值，最终消息在同一 attempt 内覆盖它；重试与上下文压缩独立计数。 |
+| **多维聚合** | 以 provider / model、会话与 UTC 日期聚合普通对话、每次重试和上下文压缩；旧用量无法归因时单独披露，不破坏总量守恒。 |
+| **概览与活跃度** | 八项概览指标覆盖总量、输入、输出、缓存结构、公开费用、缓存读取避免费用、费率覆盖和有用量会话；30 周热力图支持四类 bucket 悬停与按日会话下钻。 |
+| **趋势与数据质量** | 支持 7/30/90 日环比、活跃天数和峰值日；运行率、预算预测、异常检测与 AI 日趋势只在逐日 bucket 完整可靠时启用，避免旧版合成日期造成低估。 |
+| **预算与异常** | 本机持久化滚动 30 日 Token 预算；按最近 7 个完整 UTC 日预测 30 日运行率，以中位数/MAD 稳健基线识别近期突增，并支持异常日下钻。 |
+| **Agent 效率** | 展示模型尝试数、每次尝试 Token、每百次尝试压缩数、精确压缩 Token 占比、缓存读取占输入、Top 1/Top 3 路由集中度和未归因比例。 |
+| **公开价格估算** | 用静态公开费率计算已覆盖路由的 USD 估算与缓存读取避免费用，明确显示费率基准日、Token/路由覆盖和未覆盖项；不冒充 provider 账单。 |
+| **模型与会话工作流** | 模型表支持按总 Token、公开费用、每次记录调用 Token 或缓存占比排序；会话表支持搜索、渐进展开、直接打开会话，轨迹分析操作固定在第一列。 |
+| **聚合导出** | 导出不含会话正文和标题的 JSON v2、每日 CSV 与模型 CSV；CSV 单元格防公式注入，JSON/模型 CSV 带公开费率覆盖和已覆盖路由估算。 |
+| **AI 用量优化** | 手动选择任一当前可列出的已接入 provider/model，对总量、压缩、缓存、路由贡献、可靠日趋势、峰值和波动生成证据化建议；目录可刷新，单个 provider 枚举失败不影响其他路由。 |
+| **会话轨迹分析** | 可从设置页会话列表或对话页标题操作区启动同一 Host 流程；同时支持 live 与冷会话，确定性分析调用节点、重试、压缩、工具可靠性、速率、生命周期和 Token 对账。 |
+| **合规控制审计** | 配对审批请求与决定，统计单次/永久允许、拒绝、取消、不可用、未闭合和孤立决策；报告强制区分观测证据、风险假设与不可用证据，不声称法律或认证结论。 |
+| **实时分析进度** | 两类模型分析均显示准备/生成/整理阶段、等待时间、流块、字符数和输出 Token；provider usage 到达前明确标注估算值，到达后切换为精确值。最多同时维护 8 个请求级进度记录，结束即清理。 |
+| **报告、导出与历史** | 使用 DSH Markdown 组件展示标题、列表、表格与代码；远程图片降级为链接、原始 HTML 转义为文本。两类报告均可导出；轨迹报告最多 24 条保存在当前浏览器，可按会话查看和删除。 |
+| **紧凑、响应式与可访问 UI** | 跟随 DSH 中/英文界面并适配窄屏；大数字使用 `K` / `M` / `B` 且悬停保留精确值，轨迹摘要分为四组；加载状态提供 `aria-live`、`aria-busy` 和 reduced-motion 兼容。 |
+| **历史预热与生命周期** | Host 启动后顺序预热可读历史并写入 projection cache，不阻塞插件启动；模型目录、调用与中止信号绑定当前 LLM service 生命周期。 |
+| **隐私与边界校验** | 持久 projection 只保存统计数据；模型仅接收最小聚合 DTO 或白名单轨迹元数据。私有 RPC 只允许 loopback 页面，Client 会验证报告 schema、时间戳、bucket、节点、signed delta 与最大节点引用。 |
 
+<a id="功能截图"></a>
+## 🖼️ 功能截图
+
+### 趋势、效率、运行率与预算
+
+<p align="center">
+  <img src="./assets/token-usage-insights.png" alt="Agent 效率与归因：尝试次数、压缩率、缓存占比、路由集中度与运行率" width="800">
+</p>
+
+<p align="center">
+  <img src="./assets/token-usage-budget.png" alt="30 日 Token 预算、公开费率说明和 AI 用量分析入口" width="800">
+</p>
+
+### AI 用量分析入口与模型热点
+
+<p align="center">
+  <img src="./assets/token-usage-ai-analysis.png" alt="AI Token 用量分析：模型选择、隐私说明、模型目录刷新和模型用量热点" width="800">
+</p>
+
+> 选择的路由只在用户点击生成后调用；目录失败可重试，也不会静默改用默认模型。
+
+<a id="会话轨迹报告与浏览器本地历史"></a>
+### 会话轨迹报告与浏览器本地历史
+
+<p align="center">
+  <img src="./assets/token-usage-trajectory-analysis.png" alt="会话轨迹分析：四组确定性摘要、安全 Markdown 报告、导出与浏览器本地历史" width="100%">
+</p>
+
+> 轨迹截图使用示例会话指标，专门用于展示完成态、合规摘要、Markdown 表格、导出与 `localStorage` 历史，不对应真实会话内容。
+
+<a id="安装"></a>
 ## 🚀 安装
 
 ```powershell
@@ -115,9 +155,10 @@ dsh plugin --profile web add ./dsh-token-usage
 - 历史聚合会按当前内置静态表重估，不按事件发生日的历史价格还原；因此暂不提供 USD 预算。
 - 价格计算、页面展示和 JSON v2/模型 CSV 只在本地浏览器中使用已持久化的聚合 bucket；价格匹配、覆盖率、估算 USD 和缓存读取避免费用都不会作为外部分析模型的证据，也不会新增会话正文、提示词或响应数据的收集。
 
+<a id="ai-token-用量分析"></a>
 ## 🤖 AI Token 用量分析
 
-在仪表盘的 **AI Token 用量分析** 卡片中，从当前已接入且可列出模型的 provider/model 路由里手动选择一个模型，再点击 **生成用量分析**；可使用 **刷新模型目录** 重新读取实时路由。选择会同时用于下面的会话轨迹分析，但每次分析仍需单独手动触发。目录仅负责选择和展示，真正生成时仍由 Host LLM adapter 校验路由。
+在仪表盘的 **AI Token 用量分析** 卡片中，从当前已接入且可列出模型的 provider/model 路由里手动选择一个模型，再点击 **生成用量分析**；可使用 **刷新模型目录** 重新读取实时路由。选择会同时用于下面的会话轨迹分析，但每次分析仍需单独手动触发。目录仅负责选择和展示，真正生成时仍由 Host LLM adapter 校验路由。[查看界面截图](#功能截图)。
 
 报告固定覆盖：
 
@@ -133,14 +174,15 @@ dsh plugin --profile web add ./dsh-token-usage
 
 - 用量分析只发送总 Token bucket、精确压缩 Token bucket、报告内 `route-N` 别名、对话/压缩次数和可靠的 UTC 每日 bucket；本地价格匹配、覆盖率、估算 USD、缓存读取避免费用和路由成本均不发送。原始 provider/model、会话 ID、标题、提示词、回复、工具参数或其他会话正文同样不会发送。
 - 模型证据最多保留 Token 最大的 48 条路由记录与最新 366 条日期记录；总量仍来自完整仪表盘聚合。
-- 报告和辅助调用用量仅驻留当前页面内存，刷新后消失，不进入会话日志或 projection cache；用户可显式下载不含会话身份的 Markdown 报告。模型返回的 Markdown 通过 DSH 安全渲染器展示，远程图片语法在页面和导出文件中都会退化为普通链接，原始 HTML 会转义为文本，避免自动发起外部资源请求。
-- 用户选择的 provider/model 会实际产生一次辅助模型调用；生成中按文本增量显示明确标注的估算输出 Token，收到 provider usage 后改为精确值，完成报告继续显示调用 provider/model 与总 Token。用量分析最多生成 2,600 Token。
+- 报告和辅助调用用量仅驻留当前页面内存，刷新后消失，不进入会话日志或 projection cache；用户可显式下载 Markdown 报告。导出文件名只包含报告类型和 UTC 生成时间，不使用会话标题、会话 ID 或模型返回内容。模型 Markdown 通过 DSH 安全渲染器展示，远程图片语法在页面和导出文件中都会退化为普通链接，原始 HTML 会转义为文本，避免自动发起外部资源请求。
+- 用户选择的 provider/model 会实际产生一次辅助模型调用；生成中显示阶段、等待时间、流块、字符数和明确标注的估算输出 Token，收到 provider usage 后改为精确值；完成报告继续显示调用 provider/model、辅助调用总 Token 与模型输出 Token。用量分析最多生成 2,600 Token。
 - 目录只显示已接入且当前可列出模型的路由。单个提供方的目录失败不会隐藏其他可用路由，页面会披露受影响的提供方但不暴露适配器错误细节；调用失败时不会悄悄改用默认模型。
 - 目录用于用户选择和展示；实际调用以 Host LLM adapter 的 `prepareCall` 为准，因此目录刷新与调用之间消失的路由会得到适配器的明确失败，而不是先被过期目录拒绝。
 
+<a id="会话-token-轨迹分析"></a>
 ## 🧠 会话 Token 轨迹分析
 
-可在设置页 **会话记录** 第一列点击 **分析轨迹**，也可在对话页会话标题旁点击 **会话 Token 轨迹分析**。两个入口调用同一 Host 分析流程：读取 live 会话完整事件日志，或通过 `sessionPersistence.inspect()` 读取冷会话；浏览器分页不会影响结果。分析器先做确定性 fold，再使用用户手动选择的已接入 provider/model 生成报告。
+可在设置页 **会话记录** 第一列点击 **分析轨迹**，也可在对话页会话标题操作区点击 **会话 Token 轨迹分析**。两个入口调用同一 Host 分析流程：读取 live 会话完整事件日志，或通过 `sessionPersistence.inspect()` 读取冷会话；浏览器分页不会影响结果。分析器先做确定性 fold，再使用用户手动选择的已接入 provider/model 生成报告。[查看完成态与历史截图](#会话轨迹报告与浏览器本地历史)。
 
 ### 确定性证据
 
@@ -156,13 +198,17 @@ dsh plugin --profile web add ./dsh-token-usage
 
 当前 provider 只提供未缓存输入、缓存读取、缓存写入和输出四类实际值。系统指令、用户输入、历史、检索、工具结果和子代理结果的细分归因标为不可用；插件不会读取正文进行估算，也不会把估算值伪装成实际值。
 
+### 模型报告结构
+
+完成态先展示四组本地确定性摘要，再渲染模型 Markdown。模型被要求固定覆盖九个部分：资源摘要、调用链与用量节点、Token 对账与构成、合规控制与审计边界、重试与失败、速率与上下文效率、工具与压缩成效、异常模式，以及 3–7 条 P0/P1/P2 分级建议。重要结论必须引用事件 seq、span ID 或确定性指标；截断数据必须标为不可用，不能从缺失正文推断身份、意图、策略违规、质量或成本。
+
 ### 输入、隐私与费用
 
-- 分析由用户显式触发。报告不写入会话日志或 projection cache；成功结果最多 24 条保存在当前浏览器 `localStorage`，按会话过滤展示，可删除并可显式导出不含会话标题/ID的 Markdown 文件。浏览器禁用或耗尽本地存储时会明确提示，当前报告仍可查看和导出。
+- 分析由用户显式触发。报告不写入会话日志或 projection cache；成功结果按新到旧保存在当前浏览器 `localStorage`，最多 24 条且序列化总量不超过 3,000,000 字符，超限时淘汰最旧记录。历史按当前会话过滤，重新打开只读取本地报告、不重复调用模型；可删除并可导出不含会话标题/ID 的 Markdown。损坏时间戳或无效 schema 会被忽略，损坏 JSON 会清理后恢复；浏览器禁用或耗尽本地存储时会明确提示，当前报告仍可查看和导出。
 - 发送给模型的事件只允许：内置事件类别与序号、相对时间、turn/step、报告内 `route-N` 别名、符合受限标识符规则的工具名称、审批结果、重试序号/上限/等待、通用成功或错误状态、表面改写标记以及 Token bucket；未知扩展事件会省略。
 - 提示词、回复、system prompt、会话标题/ID、原始 provider/model、工具参数/结果/meta、审批原因与 ID、故障代码与错误消息、路径、URL、邮箱、姓名、个人字段和组织字段不会进入模型证据；这是 allowlist 省略，不依赖正则脱敏。
 - 完整模型证据最多 96,000 字符；完整节点表留在本地，模型只接收最大节点、最多 16 个高消耗重试节点和有界首尾时间线，超限时插入截断标记。模型最多生成 3,000 Token。
-- 生成中显示准备/生成/整理阶段、等待时间、文本块和输出 Token 进度；usage 到达前的 Token 数明确标注为估算，provider usage 到达后使用精确值。辅助调用用量不会计入持久化用量 projection。
+- 生成中显示准备/生成/整理阶段、等待时间、流块、字符数和输出 Token 进度；usage 到达前的 Token 数明确标注为估算，provider usage 到达后使用精确值，完成态同时显示辅助调用总 Token 与模型输出 Token。关闭对话页分析弹窗会中止仍在运行的请求，避免后台继续生成；辅助调用用量不会计入持久化用量 projection。
 - 报告使用 DSH Markdown 组件安全渲染，把远程图片语法降级为普通链接并将原始 HTML 转义为文本；四个紧凑摘要面板分别汇总生命周期、工具可靠性、合规控制和资源效率。
 - 私有 RPC 只允许本机 loopback Web 页面调用；必须先从已接入模型目录中手动选择 provider/model，不会隐藏地回退到默认模型。目录枚举与生成调用都绑定当前 LLM service 生命周期，服务移除或替换时会立即停止等待。Client 会在渲染前验证 provider 总量、节点归因、signed delta、状态和最大节点引用的一致性。
 
@@ -194,7 +240,7 @@ flowchart LR
 
 本插件吸收了主流 Agent 可观测性产品对 Token、成本、缓存和聚合趋势的做法，例如 [LangSmith cost tracking](https://docs.langchain.com/langsmith/cost-tracking)、[OpenAI Agents SDK usage](https://openai.github.io/openai-agents-python/usage/)、[Langfuse token/cost tracking](https://python-sdk-v2.docs-snapshot.langfuse.com/docs/observability/features/token-and-cost-tracking/) 和 [Phoenix LLM metrics](https://arize.com/docs/phoenix/tracing/llm-traces/metrics)。预算和异常部分参考 [FinOps Budgeting](https://www.finops.org/framework/capabilities/budgeting/)、[Anomaly Management](https://www.finops.org/framework/capabilities/anomaly-management/) 与 [MAD 的稳健统计定义](https://itl.nist.gov/div898//software/dataplot/refman2/auxillar/mad.htm)。
 
-取舍是有意的：本地插件只持久化聚合 bucket、日期、匿名化 AI 分析证据和用户显式启动的会话轨迹元数据；不保存请求正文、逐请求日志、日期×模型交叉明细或人员/组织归因。现有投影没有日期×模型维度，因此异常日只支持会话贡献下钻，不声称模型级日归因。
+取舍是有意的：Host projection 只持久化聚合 bucket、日期、计数和路由归因；聚合 AI 报告只在当前页面内存中，用户显式生成的轨迹报告才进入当前浏览器 `localStorage`。插件不保存请求正文、逐请求正文日志、日期×模型交叉明细或人员/组织归因。现有投影没有日期×模型维度，因此异常日只支持会话贡献下钻，不声称模型级日归因。
 
 ## 🔄 更新与热加载
 
@@ -216,6 +262,7 @@ npm run build
 
 构建产物为 `lib/index.js` 与 `lib/client.js`，已提交到仓库，确保可直接通过 GitHub 安装。
 
+<a id="已知限制"></a>
 ## ⚠️ 已知限制
 
 - 历史预热依赖 DSH session projection cache。预热完成前，仅有内置 projection 的旧会话会被显示为“未归因用量”；刷新后可读取新的模型明细。
