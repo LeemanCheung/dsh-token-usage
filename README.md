@@ -107,6 +107,18 @@ dsh plugin --profile web add ./dsh-token-usage
 
 </details>
 
+### 兼容性、存储与卸载
+
+- 需要挂载完整 Client 服务的 DSH **Web profile**，并依赖 DSH `0.1.0-rc.6` 系列的 session、LLM、settings、projection 和 Web UI 服务；CLI 或非 Web profile 不提供仪表盘。
+- 数据分为三层：Host 的会话 projection 聚合统计、DSH settings 中的滚动 30 日预算（`token-usage.rolling30DayBudget`），以及当前浏览器 `localStorage` 中最多 24 条的轨迹报告（`dsh-token-usage.trajectory-history.v1`）。聚合 AI 用量报告不会持久化。
+- 卸载是移除插件挂载，并不是数据重置流程。若要减少本地残留，请先在轨迹历史中删除报告、将预算清零，再按 DSH 自身的 session/cache 保留策略处理 projection 数据。
+
+```powershell
+dsh plugin --profile web remove dsh-token-usage
+```
+
+卸载后重启 `dsh web` 并刷新页面；已有会话历史仍存在，但仪表盘和自定义分析入口需要重新安装此插件才能显示。
+
 ## 📊 仪表盘内容
 
 - **概览卡片**：总 Token、输入 Token、输出 Token、缓存读取占输入、有用量会话数，以及已覆盖路由的公开 USD 估算、缓存读取避免费用和 Token 费率覆盖率。
@@ -258,9 +270,20 @@ flowchart LR
 | Client/UI（React、CSS） | 仅当同一 DSH checkout 正运行 `pnpm run dev:web` 监听器时，重建 bundle 后可通过 HMR 更新；否则重启并刷新。 |
 | GitHub 源码更新 | 新安装会取得仓库当前默认分支的预构建 bundle；已运行的实例仍按上两行规则更新。 |
 
+## 🔧 排障
+
+| 现象 | 检查方式 |
+| --- | --- |
+| 没有可选分析模型 | 刷新模型目录；确认至少一个已接入 provider 能列出模型。 |
+| 趋势、运行率或异常显示不可用 | 逐日 bucket 覆盖不足时会刻意停用这些结论；等待完整数据，或查看历史投影是否仍为未归因。 |
+| 费用显示 `—` | 当前 provider/model 没有匹配内置静态公开费率；这不是账单或调用失败。 |
+| 轨迹历史无法保存 | 检查浏览器是否禁用/耗尽 `localStorage`；当前报告仍可查看和导出。 |
+
 ## 🛠️ 开发
 
 本项目当前以 GitHub 源码插件形式分发，不发布到 npm。源码与 DSH checkout 并排放置，`tsdown.config.ts` 复用 DSH 的官方 Client bundle preset。
+
+开发命令依赖 DSH workspace 提供的 TypeScript、Vitest 和 tsdown；该私有源码包本身没有声明这些 `devDependencies`。若脱离 DSH workspace 开发，需要自行安装兼容版本后再运行：
 
 ```powershell
 npm test
