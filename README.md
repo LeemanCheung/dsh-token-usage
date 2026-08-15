@@ -1,6 +1,8 @@
 # dsh-token-usage
 
 <p align="center">
+  <a href="https://awesome.re"><img src="https://awesome.re/badge.svg" alt="Awesome"></a>
+  <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek_Harness-plugin-2f6cff.svg" alt="DeepSeek Harness plugin"></a>
   <img src="https://img.shields.io/badge/data-local--first-6f42c1.svg" alt="Local-first data">
   <img src="https://img.shields.io/badge/AI_analysis-opt--in-f59e0b.svg" alt="Opt-in AI analysis">
