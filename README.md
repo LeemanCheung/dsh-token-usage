@@ -76,10 +76,10 @@
 ### 会话轨迹报告与浏览器本地历史
 
 <p align="center">
-  <img src="./assets/token-usage-trajectory-analysis.png" alt="会话轨迹分析：四组确定性摘要、安全 Markdown 报告、导出与浏览器本地历史" width="100%">
+  <img src="./assets/token-usage-trajectory-analysis.png" alt="会话轨迹分析：视口内滚动预览、四组确定性摘要、安全 Markdown 与导出" width="822">
 </p>
 
-> 轨迹截图使用示例会话指标，专门用于展示完成态、合规摘要、Markdown 表格、导出与 `localStorage` 历史，不对应真实会话内容。
+> 轨迹截图使用示例会话指标，展示限制在视口内的滚动预览、完成态摘要、Markdown 表格与导出；继续向下滚动可查看浏览器本地历史，不对应真实会话内容。
 
 <a id="安装"></a>
 ## 🚀 安装
@@ -211,7 +211,7 @@ dsh plugin --profile web add ./dsh-token-usage
 - 提示词、回复、system prompt、会话标题/ID、原始 provider/model、工具参数/结果/meta、审批原因与 ID、故障代码与错误消息、路径、URL、邮箱、姓名、个人字段和组织字段不会进入模型证据；这是 allowlist 省略，不依赖正则脱敏。
 - 完整模型证据最多 96,000 字符；完整节点表留在本地，模型只接收最大节点、最多 16 个高消耗重试节点和有界首尾时间线，超限时插入截断标记。模型最多生成 3,000 Token。
 - 生成中显示准备/生成/整理阶段、等待时间、流块、字符数和输出 Token 进度；usage 到达前的 Token 数明确标注为估算，provider usage 到达后使用精确值，完成态同时显示辅助调用总 Token 与模型输出 Token。关闭对话页分析弹窗会中止仍在运行的请求，避免后台继续生成；辅助调用用量不会计入持久化用量 projection。
-- 报告使用 DSH Markdown 组件安全渲染，把远程图片语法降级为普通链接并将原始 HTML 转义为文本；四个紧凑摘要面板分别汇总生命周期、工具可靠性、合规控制和资源效率。
+- 报告使用 DSH Markdown 组件安全渲染，把远程图片语法降级为普通链接并将原始 HTML 转义为文本；四个紧凑摘要面板分别汇总生命周期、工具可靠性、合规控制和资源效率。对话页预览采用中等宽度与视口内高度上限，长报告在正文区域滚动，底部关闭操作保持可达。
 - 私有 RPC 只允许本机 loopback Web 页面调用；必须先从已接入模型目录中手动选择 provider/model，不会隐藏地回退到默认模型。目录枚举与生成调用都绑定当前 LLM service 生命周期，服务移除或替换时会立即停止等待。Client 会在渲染前验证 provider 总量、节点归因、signed delta、状态和最大节点引用的一致性。
 
 ## 🧭 数据流

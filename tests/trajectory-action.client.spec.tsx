@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { prepareTrajectory } from '../src/trajectory-analysis.ts'
 import { zh } from '../src/client/locales.ts'
 import { TrajectoryAnalysisAction } from '../src/client/TrajectoryAnalysisAction.tsx'
+import css from '../src/client/TokenUsageSection.module.css'
 import type { TrajectoryAnalysis } from '../src/types.ts'
 
 function t(key: keyof typeof zh, params?: Record<string, unknown>): string {
@@ -69,7 +70,8 @@ describe('conversation trajectory analysis action', () => {
     render(<TrajectoryAnalysisAction {...props} />)
     fireEvent.click(screen.getByRole('button', { name: '会话 Token 轨迹分析' }))
 
-    expect(await screen.findByRole('dialog', { name: '当前会话轨迹分析' })).toBeTruthy()
+    const dialog = await screen.findByRole('dialog', { name: '当前会话轨迹分析' })
+    expect(dialog.querySelector(`.${css.analysisDialogContent}`)).toBeTruthy()
     expect(screen.getByText('1 条')).toBeTruthy()
     expect(screen.getByText('deepseek/chat')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '分析轨迹' }))

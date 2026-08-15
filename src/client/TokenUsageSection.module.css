@@ -958,7 +958,20 @@
 }
 
 .analysisDialog {
-  width: min(1080px, calc(100vw - 32px));
+  width: min(820px, 100%);
+  max-height: min(84vh, 780px);
+  max-height: min(84dvh, 780px);
+}
+
+.analysisDialogContent {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.analysisDialog .analysisReport {
+  max-height: min(48vh, 460px);
+  max-height: min(48dvh, 460px);
 }
 
 .conversationAnalysisControls {

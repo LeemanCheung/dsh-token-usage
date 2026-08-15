@@ -8,11 +8,18 @@ export function Button({ variant: _variant, ...props }: ButtonHTMLAttributes<HTM
   return <button {...props} />
 }
 
-export function Modal({ open, title, children, footer }: {
+export function Modal({ open, title, children, footer, className, contentClassName }: {
   open: boolean
   title: ReactNode
   children: ReactNode
   footer?: ReactNode
+  className?: string
+  contentClassName?: string
 }): ReactNode {
-  return open ? <section role="dialog" aria-label={String(title)}>{children}{footer}</section> : null
+  return open
+    ? <section className={className} role="dialog" aria-label={String(title)}>
+        <div className={contentClassName}>{children}</div>
+        {footer}
+      </section>
+    : null
 }

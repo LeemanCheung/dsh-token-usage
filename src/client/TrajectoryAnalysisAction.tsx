@@ -137,6 +137,7 @@ export function TrajectoryAnalysisAction({
       description={t('conversationTrajectoryAnalysisIntro')}
       closeLabel={t('close')}
       className={css.analysisDialog as string}
+      contentClassName={css.analysisDialogContent as string}
       footer={<Button variant="outline" onClick={closeModal}>{t('close')}</Button>}
     >
       <div className={css.conversationAnalysisControls}>
