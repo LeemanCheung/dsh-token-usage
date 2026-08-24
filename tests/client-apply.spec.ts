@@ -13,7 +13,7 @@ describe('client apply', () => {
     const registerSlot = vi.fn(() => () => {})
     const injectSlot = vi.fn((_name: string, install: () => unknown) => install())
     const effect = vi.fn((install: () => unknown) => install())
-    const rpcCall = vi.fn(async () => ({ ok: true as const, value: { rolling30DayBudget: 0 } }))
+    const rpcCall = vi.fn(async () => ({ ok: true as const, value: { rolling30DayBudget: 0, routeBudgets: [] } }))
     const connection = {
       isLoopback: true,
       rpc: { call: rpcCall },
@@ -56,6 +56,7 @@ describe('client apply', () => {
         listAnalysisModels: unknown
         openSession: unknown
         setBudget: unknown
+        setRouteBudget: unknown
         download: unknown
       }
     }
@@ -66,6 +67,7 @@ describe('client apply', () => {
       listAnalysisModels: expect.any(Function),
       openSession: expect.any(Function),
       setBudget: expect.any(Function),
+      setRouteBudget: expect.any(Function),
       download: expect.any(Object),
     }))
     const actionOptions = registerSlot.mock.calls[1]?.[0] as { inject: () => Record<string, unknown> }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dailyUsageCsv, modelUsageCsv, tokenUsageExport, tokenUsageJson, type UsageExportSource } from '../src/client/export.ts'
+import { dailyUsageCsv, modelDailyUsageCsv, modelUsageCsv, tokenUsageExport, tokenUsageJson, type UsageExportSource } from '../src/client/export.ts'
 
 const source: UsageExportSource = {
   usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },
@@ -12,6 +12,14 @@ const source: UsageExportSource = {
     usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },
   }],
   days: [{ date: '2026-08-14', usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 } }],
+  modelDays: [{
+    date: '2026-08-14',
+    provider: '=formula-provider',
+    model: 'model, "quoted"',
+    usage: { uncachedInputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },
+  }],
+  dailyCoverage: 'complete',
+  modelDailyCoverage: 'complete',
 }
 
 describe('privacy-safe usage export', () => {
@@ -24,12 +32,13 @@ describe('privacy-safe usage export', () => {
     const json = tokenUsageJson(extended, '2026-08-14T12:00:00.000Z')
 
     expect(exported).toMatchObject({
-      schema: 'dsh-token-usage/export-v2',
+      schema: 'dsh-token-usage/export-v3',
       generatedAt: '2026-08-14T12:00:00.000Z',
       timezone: 'UTC',
       totals: source.usage,
       compactionUsage: source.compactionUsage,
       pricingCatalogAsOf: '2025-08-07',
+      coverage: { daily: 'complete', modelDaily: 'complete' },
       pricing: {
         totalCostUSD: 0,
         cacheReadSavingsUSD: 0,
@@ -38,6 +47,7 @@ describe('privacy-safe usage export', () => {
       },
       models: source.models,
       days: source.days,
+      modelDays: source.modelDays,
     })
     expect(json).not.toContain('session-private')
     expect(json).not.toContain('私密会话标题')
@@ -55,6 +65,9 @@ describe('privacy-safe usage export', () => {
         usage: { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000 },
       }],
       days: [],
+      modelDays: [],
+      dailyCoverage: 'complete',
+      modelDailyCoverage: 'complete',
     }
 
     expect(tokenUsageExport(priced, '2026-08-14T12:00:00.000Z').pricing).toMatchObject({
@@ -72,5 +85,20 @@ describe('privacy-safe usage export', () => {
       '',
     ].join('\r\n'))
     expect(modelUsageCsv(source)).toContain("'=formula-provider,\"model, \"\"quoted\"\"\",2,1,10,2,5,1,16,18,,,")
+    expect(modelDailyUsageCsv(source)).toContain("2026-08-14,'=formula-provider,\"model, \"\"quoted\"\"\",10,2,5,1,16,18")
+    expect(modelDailyUsageCsv({
+      modelDays: [{ ...source.modelDays[0]!, provider: '\t=1+1' }],
+      modelDailyCoverage: 'complete',
+    })).toContain(",'\t=1+1,")
+  })
+
+  it('discloses incomplete coverage in JSON and refuses misleading route-day CSV', () => {
+    const partial = { ...source, dailyCoverage: 'partial' as const, modelDailyCoverage: 'partial' as const }
+
+    expect(tokenUsageExport(partial, '2026-08-14T12:00:00.000Z').coverage).toEqual({
+      daily: 'partial',
+      modelDaily: 'partial',
+    })
+    expect(() => modelDailyUsageCsv(partial)).toThrow('requires complete and conserved route-day coverage')
   })
 })

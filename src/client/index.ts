@@ -52,6 +52,7 @@ export function apply(ctx: ClientContext): void {
     inject: () => ({
       hooks: { budget: budget.store },
       setBudget: (value: number) => budget.setBudget(value),
+      setRouteBudget: (provider: string, model: string, value: number) => budget.setRouteBudget(provider, model, value),
       download: browserDownload,
       saveTrajectoryAnalysis: (analysis: TrajectoryAnalysis) => { trajectoryHistory.save(analysis) },
       openSession: (sessionId: SessionId) => { ctx.sessions.open(sessionId) },

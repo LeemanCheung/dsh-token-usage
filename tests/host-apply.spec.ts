@@ -3,12 +3,20 @@ import type { Context } from '@deepseek-ai/cordis'
 import { apply, inject } from '../src/index.ts'
 
 function rpcServices() {
-  const settings = { rolling30DayBudget: 0 }
+  const settings = {
+    rolling30DayBudget: 0,
+    routeBudgets: [] as Array<{ provider: string; model: string; rolling30DayBudget: number }>,
+  }
+  const budgetUpdate = vi.fn(async (next: Partial<typeof settings>) => {
+    if (next.rolling30DayBudget !== undefined) settings.rolling30DayBudget = next.rolling30DayBudget
+    if (next.routeBudgets !== undefined) settings.routeBudgets = next.routeBudgets
+  })
   return {
+    budgetUpdate,
     settings: {
       register: vi.fn(() => ({
         get: () => settings,
-        update: vi.fn(async (next: typeof settings) => { settings.rolling30DayBudget = next.rolling30DayBudget }),
+        update: budgetUpdate,
       })),
     },
     connection: { rpc: { handle: vi.fn(() => async () => {}) } },
@@ -25,7 +33,7 @@ describe('host apply', () => {
     expect(inject).toEqual(['sessionProjections', 'sessionProjectionCache', 'sessionQuery', 'sessions'])
   })
 
-  it('persists valid rolling budgets and rejects invalid values through the loopback channel', async () => {
+  it('persists global and exact-route budgets while rejecting malformed settings', async () => {
     const rpc = rpcServices()
     const ctx = {
       ...rpc,
@@ -43,12 +51,84 @@ describe('host apply', () => {
       endpoint: string,
       payload: unknown,
       signal: AbortSignal,
-    ) => Promise<{ ok: boolean; value?: { rolling30DayBudget: number }; error?: { code: string } }>
-    const written = await handler('budget/write', { rolling30DayBudget: 250 }, new AbortController().signal)
-    const rejected = await handler('budget/write', { rolling30DayBudget: -1 }, new AbortController().signal)
+    ) => Promise<{
+      ok: boolean
+      value?: { rolling30DayBudget: number; routeBudgets: Array<{ provider: string; model: string; rolling30DayBudget: number }> }
+      error?: { code: string }
+    }>
+    const signal = new AbortController().signal
+    const written = await handler('budget/write', { rolling30DayBudget: 250 }, signal)
+    expect(written).toEqual({ ok: true, value: { rolling30DayBudget: 250, routeBudgets: [] } })
+    const routeWritten = await handler('budget/write', {
+      routeBudgets: [{ provider: 'deepseek', model: 'chat', rolling30DayBudget: 1_000 }],
+    }, signal)
+    const rejected = await handler('budget/write', { rolling30DayBudget: -1 }, signal)
+    const duplicate = await handler('budget/write', {
+      routeBudgets: [
+        { provider: 'deepseek', model: 'chat', rolling30DayBudget: 1_000 },
+        { provider: 'deepseek', model: 'chat', rolling30DayBudget: 2_000 },
+      ],
+    }, signal)
 
-    expect(written).toEqual({ ok: true, value: { rolling30DayBudget: 250 } })
+    expect(routeWritten).toEqual({
+      ok: true,
+      value: {
+        rolling30DayBudget: 250,
+        routeBudgets: [{ provider: 'deepseek', model: 'chat', rolling30DayBudget: 1_000 }],
+      },
+    })
+    expect(rpc.budgetUpdate).toHaveBeenNthCalledWith(1, { rolling30DayBudget: 250 })
+    expect(rpc.budgetUpdate).toHaveBeenNthCalledWith(2, {
+      routeBudgets: [{ provider: 'deepseek', model: 'chat', rolling30DayBudget: 1_000 }],
+    })
     expect(rejected).toMatchObject({ ok: false, error: { code: 'settings-rejected' } })
+    expect(duplicate).toMatchObject({ ok: false, error: { code: 'settings-rejected' } })
+  })
+
+  it('rejects malformed analysis payloads before session reads or model Adapter calls', async () => {
+    let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<{ ok: boolean }>) | undefined
+    const rpc = rpcServices()
+    rpc.connection.rpc.handle = vi.fn((_channel, next) => {
+      handler = next as typeof handler
+      return async () => {}
+    }) as typeof rpc.connection.rpc.handle
+    const prepareCall = vi.fn()
+    const getSession = vi.fn()
+    const ctx = {
+      ...rpc,
+      sessionProjections: { register: vi.fn() },
+      sessionQuery: { listSessions: vi.fn(async () => []) },
+      sessionProjectionCache: { write: vi.fn(), coldSnapshot: vi.fn() },
+      sessions: { get: getSession },
+      sessionPersistence: { inspect: vi.fn() },
+      llm: {
+        listProviders: () => [],
+        listModels: async () => [],
+        prepareCall,
+      },
+      logger: { warn: vi.fn() },
+      effect: vi.fn((install: () => unknown) => install()),
+    } as unknown as Context
+    apply(ctx)
+    const signal = new AbortController().signal
+    const model = { provider: 'provider', model: 'model' }
+    const buckets = { uncachedInputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+    const validInput = { usage: buckets, models: [], days: [] }
+    const modelRow = { provider: 'provider', model: 'model', assistantRequests: 1, compactionRequests: 0, usage: buckets }
+    const requests: Array<[string, unknown]> = [
+      ['usage/analyze', { model, language: 'en', input: { ...validInput, usage: { ...buckets, outputTokens: -1 } } }],
+      ['usage/analyze', { model, language: 'en', input: { ...validInput, models: Array.from({ length: 513 }, () => modelRow) } }],
+      ['usage/analyze', { model, language: 'en', input: { ...validInput, days: [{ date: '2026-02-30', usage: buckets }] } }],
+      ['usage/analyze', { model, language: 'en', progressId: 'short', input: validInput }],
+      ['trajectory/analyze', { sessionId: '', model, language: 'en' }],
+      ['trajectory/analyze', { sessionId: 'session', model: { provider: '', model: 'model' }, language: 'en' }],
+    ]
+
+    for (const [endpoint, payload] of requests) {
+      await expect(handler?.(endpoint, payload, signal)).resolves.toMatchObject({ ok: false })
+    }
+    expect(getSession).not.toHaveBeenCalled()
+    expect(prepareCall).not.toHaveBeenCalled()
   })
 
   it('registers before warming live and persisted sessions', async () => {
@@ -253,6 +333,126 @@ describe('host apply', () => {
     expect(prepareCall).toHaveBeenCalledTimes(2)
   })
 
+  it('isolates provider catalog timeouts and retries one hung call after cooldown', async () => {
+    vi.useFakeTimers()
+    try {
+      let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
+      const rpc = rpcServices()
+      rpc.connection.rpc.handle = vi.fn((_channel, next) => {
+        handler = next as typeof handler
+        return async () => {}
+      }) as typeof rpc.connection.rpc.handle
+      let pendingCalls = 0
+      const listModels = vi.fn((provider: string) => {
+        if (provider !== 'pending') return Promise.resolve([{ provider, id: 'model', name: 'Healthy model' }])
+        pendingCalls += 1
+        return pendingCalls > 1
+          ? Promise.resolve([{ provider, id: 'recovered', name: 'Recovered model' }])
+          : new Promise<Array<{ provider: string; id: string; name: string }>>(() => {})
+      })
+      const ctx = {
+        ...rpc,
+        sessionProjections: { register: vi.fn() },
+        sessionQuery: { listSessions: vi.fn(async () => []) },
+        sessionProjectionCache: { write: vi.fn(), coldSnapshot: vi.fn() },
+        sessions: { get: vi.fn() },
+        llm: {
+          listProviders: () => [{ id: 'pending', name: 'Pending provider' }, { id: 'healthy', name: 'Healthy provider' }],
+          listModels,
+        },
+        logger: { warn: vi.fn() },
+        effect: vi.fn((install: () => unknown) => install()),
+      } as unknown as Context
+      apply(ctx)
+
+      const result = handler?.('analysis/models', {}, new AbortController().signal) as Promise<{
+        ok: boolean
+        value?: { models: Array<{ provider: string; model: string }>; failures: Array<{ provider: string }> }
+      }>
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      await expect(result).resolves.toMatchObject({
+        ok: true,
+        value: {
+          models: [{ provider: 'healthy', model: 'model' }],
+          failures: [{ provider: 'pending' }],
+        },
+      })
+      const repeated = handler?.('analysis/models', {}, new AbortController().signal) as typeof result
+      await vi.advanceTimersByTimeAsync(5_000)
+      await expect(repeated).resolves.toMatchObject({
+        ok: true,
+        value: {
+          models: [{ provider: 'healthy', model: 'model' }],
+          failures: [{ provider: 'pending' }],
+        },
+      })
+      expect(listModels.mock.calls.filter(([provider]) => provider === 'pending')).toHaveLength(1)
+      expect(listModels.mock.calls.filter(([provider]) => provider === 'healthy')).toHaveLength(2)
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      const recovered = handler?.('analysis/models', {}, new AbortController().signal) as typeof result
+      await expect(recovered).resolves.toMatchObject({
+        ok: true,
+        value: {
+          models: [
+            { provider: 'pending', model: 'recovered' },
+            { provider: 'healthy', model: 'model' },
+          ],
+        },
+      })
+      expect(listModels.mock.calls.filter(([provider]) => provider === 'pending')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('caps cooldown retries for a permanently hung provider catalog', async () => {
+    vi.useFakeTimers()
+    try {
+      let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
+      const rpc = rpcServices()
+      rpc.connection.rpc.handle = vi.fn((_channel, next) => {
+        handler = next as typeof handler
+        return async () => {}
+      }) as typeof rpc.connection.rpc.handle
+      const listModels = vi.fn(() => new Promise<never>(() => {}))
+      const ctx = {
+        ...rpc,
+        sessionProjections: { register: vi.fn() },
+        sessionQuery: { listSessions: vi.fn(async () => []) },
+        sessionProjectionCache: { write: vi.fn(), coldSnapshot: vi.fn() },
+        sessions: { get: vi.fn() },
+        llm: {
+          listProviders: () => [{ id: 'stuck', name: 'Stuck provider' }],
+          listModels,
+        },
+        logger: { warn: vi.fn() },
+        effect: vi.fn((install: () => unknown) => install()),
+      } as unknown as Context
+      apply(ctx)
+
+      const first = handler?.('analysis/models', {}, new AbortController().signal)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await expect(first).resolves.toMatchObject({ ok: true, value: { failures: [{ provider: 'stuck' }] } })
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      const retry = handler?.('analysis/models', {}, new AbortController().signal)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await expect(retry).resolves.toMatchObject({ ok: true, value: { failures: [{ provider: 'stuck' }] } })
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      const controller = new AbortController()
+      const capped = handler?.('analysis/models', {}, controller.signal)
+      await Promise.resolve()
+      controller.abort(new Error('test cancellation'))
+      await expect(capped).rejects.toThrow('test cancellation')
+      expect(listModels).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('stops waiting for model enumeration when its injected LLM runtime is disposed', async () => {
     let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
     let runtimeCleanup: (() => void) | undefined
@@ -325,11 +525,10 @@ describe('host apply', () => {
     expect(listModels).toHaveBeenCalledTimes(1)
   })
 
-  it('does not start the next provider after disposal between catalog entries', async () => {
+  it('aborts all concurrently enumerated providers when the model runtime is disposed', async () => {
     let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
     let runtimeCleanup: (() => void) | undefined
-    let resolveFirst: ((models: Array<{ provider: string; id: string; name: string }>) => void) | undefined
-    const first = new Promise<Array<{ provider: string; id: string; name: string }>>(resolve => { resolveFirst = resolve })
+    const first = new Promise<Array<{ provider: string; id: string; name: string }>>(() => {})
     const listModels = vi.fn((provider: string) => provider === 'first' ? first : Promise.resolve([]))
     const rpc = rpcServices()
     rpc.connection.rpc.handle = vi.fn((_channel, next) => {
@@ -356,13 +555,13 @@ describe('host apply', () => {
     apply(ctx)
 
     const pending = handler?.('analysis/models', {}, new AbortController().signal)
-    await vi.waitFor(() => { expect(listModels).toHaveBeenCalledWith('first') })
-    resolveFirst?.([])
-    await Promise.resolve()
+    await vi.waitFor(() => {
+      expect(listModels).toHaveBeenCalledWith('first')
+      expect(listModels).toHaveBeenCalledWith('second')
+    })
     runtimeCleanup?.()
 
     await expect(pending).rejects.toThrow('token usage analysis service disposed')
-    expect(listModels).not.toHaveBeenCalledWith('second')
   })
 
   it('aborts an in-flight analysis when its injected LLM runtime is disposed', async () => {

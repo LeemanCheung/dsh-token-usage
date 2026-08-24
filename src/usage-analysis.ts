@@ -102,8 +102,15 @@ function analysisUsage(value: TokenUsage | undefined): TokenUsageBuckets | undef
 
 /** Return a terminal model error when the stream did not finish normally. */
 function finishError(reason: FinishReason | undefined): Error | undefined {
-  if (reason === undefined || reason.kind === 'stop') return undefined
-  return new Error(`Usage analysis model finished with ${reason.kind}.`)
+  if (reason === undefined) return new Error('Usage analysis model stream ended without a terminal finish reason.')
+  switch (reason.kind) {
+    case 'stop': return undefined
+    case 'error':
+    case 'aborted': return Object.assign(new Error(reason.failure.message), { code: reason.failure.code })
+    case 'max-tokens': return new Error('Usage analysis reached its output limit. Please retry with a smaller date or model scope.')
+    case 'tool-calls': return new Error('Usage analysis model unexpectedly requested a tool.')
+    default: return new Error(`Unsupported model finish reason: ${String((reason as { kind?: unknown }).kind)}`)
+  }
 }
 
 /** Create a constrained, evidence-first Token efficiency review instruction. */
@@ -142,6 +149,7 @@ export async function analyzeTokenUsage(
   }, signal)
   signal.throwIfAborted()
   const assembler = new BlockAssembler()
+  let finishReason: FinishReason | undefined
   progress.generating()
   for await (const chunk of preparedCall.stream({
     ...preparedCall.config,
@@ -150,12 +158,14 @@ export async function analyzeTokenUsage(
     signal,
   })) {
     signal.throwIfAborted()
+    if (finishReason !== undefined) throw new Error('Usage analysis model emitted data after its terminal finish reason.')
     assembler.push(chunk)
+    if (chunk.type === 'finish') finishReason = chunk.reason
     progress.push(chunk)
   }
   signal.throwIfAborted()
   progress.finalizing(assembler.usage)
-  const terminalError = finishError(assembler.finish)
+  const terminalError = finishError(finishReason)
   if (terminalError !== undefined) throw terminalError
   const blocks = assembler.blocks()
   if (blocks.some(block => block.type === 'tool-call')) {

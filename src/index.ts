@@ -10,7 +10,11 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
-import { TOKEN_USAGE_SETTINGS_NAMESPACE, type TokenUsageBudgetSettings } from './budget-settings.ts'
+import {
+  TOKEN_USAGE_SETTINGS_NAMESPACE,
+  type TokenUsageBudgetSettings,
+  type TokenUsageRouteBudget,
+} from './budget-settings.ts'
 import { tokenUsageRecorderProjectionDefinition } from './projection.ts'
 import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from './rpc.ts'
 import type { AnalysisProgressReporter, AnalysisProgressUpdate } from './analysis-progress.ts'
@@ -45,15 +49,62 @@ const auxiliaryPlugin = {
 }
 
 const BUDGET_NAMESPACE = settingsNamespace(TOKEN_USAGE_SETTINGS_NAMESPACE)
+const MAX_ROUTE_BUDGETS = 64
+const RouteBudgetSchema: z<TokenUsageRouteBudget> = z.object({
+  provider: z.string().min(1).max(256),
+  model: z.string().min(1).max(256),
+  rolling30DayBudget: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
+})
 const BudgetSettingsSchema: z<TokenUsageBudgetSettings> = z.object({
   rolling30DayBudget: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  routeBudgets: z.array(RouteBudgetSchema).max(MAX_ROUTE_BUDGETS).default([]),
 })
 
-/** Read one safe whole-token budget from a client RPC payload. */
-function budgetFrom(payload: unknown): number | undefined {
-  if (typeof payload !== 'object' || payload === null) return undefined
-  const budget = (payload as { rolling30DayBudget?: unknown }).rolling30DayBudget
-  return typeof budget === 'number' && Number.isSafeInteger(budget) && budget >= 0 ? budget : undefined
+interface BudgetSettingsPatch {
+  rolling30DayBudget?: number
+  routeBudgets?: TokenUsageRouteBudget[]
+}
+
+/** Read one safe whole-token count from a settings payload. */
+function budgetCount(value: unknown, allowZero: boolean): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && (allowZero ? value >= 0 : value > 0)
+    ? value
+    : undefined
+}
+
+/** Read one exact-route budget from the private client wire. */
+function routeBudgetFrom(value: unknown): TokenUsageRouteBudget | undefined {
+  if (!isRecord(value)) return undefined
+  const provider = text(value.provider, 256)
+  const model = text(value.model, 256)
+  const rolling30DayBudget = budgetCount(value.rolling30DayBudget, false)
+  return provider === undefined || model === undefined || rolling30DayBudget === undefined
+    ? undefined
+    : { provider, model, rolling30DayBudget }
+}
+
+/** Read a bounded global or route-budget settings patch from the private client wire. */
+function budgetPatchFrom(payload: unknown): BudgetSettingsPatch | undefined {
+  if (!isRecord(payload)) return undefined
+  const hasGlobal = payload.rolling30DayBudget !== undefined
+  const hasRoutes = payload.routeBudgets !== undefined
+  if (!hasGlobal && !hasRoutes) return undefined
+  const rolling30DayBudget = hasGlobal ? budgetCount(payload.rolling30DayBudget, true) : undefined
+  if (hasGlobal && rolling30DayBudget === undefined) return undefined
+  let routeBudgets: TokenUsageRouteBudget[] | undefined
+  if (hasRoutes) {
+    if (!Array.isArray(payload.routeBudgets) || payload.routeBudgets.length > MAX_ROUTE_BUDGETS) return undefined
+    const parsed = payload.routeBudgets.map(routeBudgetFrom)
+    if (parsed.some(route => route === undefined)) return undefined
+    routeBudgets = (parsed as TokenUsageRouteBudget[]).sort((left, right) =>
+      left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model))
+    const seen = new Set(routeBudgets.map(route => JSON.stringify([route.provider, route.model])))
+    if (seen.size !== routeBudgets.length) return undefined
+  }
+  return {
+    ...rolling30DayBudget === undefined ? {} : { rolling30DayBudget },
+    ...routeBudgets === undefined ? {} : { routeBudgets },
+  }
 }
 
 /** Build one standard internal error response for the private loopback channel. */
@@ -206,6 +257,20 @@ interface AnalysisModelCatalog {
   failures: TokenUsageAnalysisCatalogFailure[]
 }
 
+type AnalysisListedModels = Awaited<ReturnType<Context['llm']['listModels']>>
+
+interface AnalysisCatalogProviderState {
+  active: Set<Promise<AnalysisListedModels>>
+  current: Promise<AnalysisListedModels> | undefined
+  lastStartedAt: number
+}
+
+interface AnalysisCatalogRuntime {
+  llm: Context['llm']
+  logger: Context['logger']
+  catalogInFlight: Map<string, AnalysisCatalogProviderState>
+}
+
 /** Stop awaiting an API that cannot consume AbortSignal when its owning lifecycle ends. */
 function awaitWithAbort<T>(start: () => Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -241,29 +306,74 @@ function awaitWithAbort<T>(start: () => Promise<T>, signal: AbortSignal): Promis
   })
 }
 
+const ANALYSIS_MODEL_PROVIDER_TIMEOUT_MS = 5_000
+const ANALYSIS_MODEL_PROVIDER_RETRY_COOLDOWN_MS = 30_000
+const MAX_UNSETTLED_PROVIDER_CATALOG_CALLS = 2
+
+/** Reuse recent enumeration while permitting one cooldown retry without unbounded hung calls. */
+function listAnalysisProvider(runtime: AnalysisCatalogRuntime, provider: string): Promise<AnalysisListedModels> {
+  let state = runtime.catalogInFlight.get(provider)
+  const now = Date.now()
+  if (state?.current !== undefined
+    && (state.active.size >= MAX_UNSETTLED_PROVIDER_CATALOG_CALLS
+      || now - state.lastStartedAt < ANALYSIS_MODEL_PROVIDER_RETRY_COOLDOWN_MS)) return state.current
+  if (state === undefined) {
+    state = { active: new Set(), current: undefined, lastStartedAt: 0 }
+    runtime.catalogInFlight.set(provider, state)
+  }
+  if (state.active.size >= MAX_UNSETTLED_PROVIDER_CATALOG_CALLS) {
+    const reusable = state.current ?? [...state.active][state.active.size - 1]
+    if (reusable === undefined) throw new Error(`No reusable model catalog call exists for provider "${provider}".`)
+    return reusable
+  }
+  const operation = Promise.resolve().then(() => runtime.llm.listModels(provider))
+  state.active.add(operation)
+  state.current = operation
+  state.lastStartedAt = now
+  const settled = (): void => {
+    if (runtime.catalogInFlight.get(provider) !== state) return
+    state.active.delete(operation)
+    if (state.current === operation) state.current = undefined
+    if (state.active.size === 0) runtime.catalogInFlight.delete(provider)
+  }
+  void operation.then(settled, settled)
+  return operation
+}
+
 /** List selectable routes without one unavailable provider blocking healthy providers. */
-async function analysisModels(ctx: Pick<Context, 'llm' | 'logger'>, signal: AbortSignal): Promise<AnalysisModelCatalog> {
-  const models: TokenUsageAnalysisModel[] = []
-  const failures: TokenUsageAnalysisCatalogFailure[] = []
-  const seen = new Set<string>()
-  for (const provider of ctx.llm.listProviders()) {
+async function analysisModels(ctx: AnalysisCatalogRuntime, signal: AbortSignal): Promise<AnalysisModelCatalog> {
+  const providers = ctx.llm.listProviders()
+  const providerResults = await Promise.all(providers.map(async (provider) => {
     try {
-      const listed = await awaitWithAbort(() => ctx.llm.listModels(provider.id), signal)
-      for (const model of listed) {
-        const key = `${provider.id}\u0000${model.id}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        models.push({
-          provider: provider.id,
-          providerName: provider.name,
-          model: model.id,
-          modelName: model.name,
-        })
-      }
+      const providerSignal = AbortSignal.any([signal, AbortSignal.timeout(ANALYSIS_MODEL_PROVIDER_TIMEOUT_MS)])
+      const listed = await awaitWithAbort(() => listAnalysisProvider(ctx, provider.id), providerSignal)
+      return { provider, listed }
     } catch (error) {
       signal.throwIfAborted()
       ctx.logger.warn(`token usage: failed to list analysis models for "${provider.id}": ${String(error)}`)
+      return { provider, listed: undefined }
+    }
+  }))
+  signal.throwIfAborted()
+
+  const models: TokenUsageAnalysisModel[] = []
+  const failures: TokenUsageAnalysisCatalogFailure[] = []
+  const seen = new Set<string>()
+  for (const { provider, listed } of providerResults) {
+    if (listed === undefined) {
       failures.push({ provider: provider.id, providerName: provider.name })
+      continue
+    }
+    for (const model of listed) {
+      const key = `${provider.id}\u0000${model.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      models.push({
+        provider: provider.id,
+        providerName: provider.name,
+        model: model.id,
+        modelName: model.name,
+      })
     }
   }
   return { models, failures }
@@ -309,16 +419,25 @@ function installRpc(ctx: Context): void {
       activeProgress.delete(progressId)
     }
   }
-  let analysisRuntime: { llm: Context['llm']; signal: AbortSignal } | undefined
+  let analysisRuntime: {
+    llm: Context['llm']
+    signal: AbortSignal
+    catalogInFlight: Map<string, AnalysisCatalogProviderState>
+  } | undefined
   ctx.plugin({
     name: 'token-usage-analysis-runtime',
     inject: ['llm'],
     apply(analysisCtx: Context) {
       const lifecycle = new AbortController()
-      const current = { llm: analysisCtx.llm, signal: lifecycle.signal }
+      const current = {
+        llm: analysisCtx.llm,
+        signal: lifecycle.signal,
+        catalogInFlight: new Map<string, AnalysisCatalogProviderState>(),
+      }
       analysisRuntime = current
       analysisCtx.effect(() => () => {
         lifecycle.abort(new Error('token usage analysis service disposed'))
+        current.catalogInFlight.clear()
         if (analysisRuntime === current) analysisRuntime = undefined
       }, 'token usage: analysis runtime')
     },
@@ -331,12 +450,12 @@ function installRpc(ctx: Context): void {
       case TOKEN_USAGE_RPC_ENDPOINT.budgetRead:
         return { ok: true, value: budget.get() }
       case TOKEN_USAGE_RPC_ENDPOINT.budgetWrite: {
-        const rolling30DayBudget = budgetFrom(payload)
-        if (rolling30DayBudget === undefined) {
-          return budgetError('Budget must be a non-negative whole Token count.')
+        const patch = budgetPatchFrom(payload)
+        if (patch === undefined) {
+          return budgetError('Budget settings must contain a valid whole-Token global budget or unique exact-route budgets.')
         }
         try {
-          await budget.update({ rolling30DayBudget })
+          await budget.update(patch)
         } catch (error) {
           return budgetError(error instanceof Error ? error.message : String(error))
         }
@@ -346,7 +465,7 @@ function installRpc(ctx: Context): void {
         const runtime = analysisRuntime
         if (runtime?.llm === undefined) return rpcError('Analysis requires an available model service.')
         const analysisSignal = AbortSignal.any([operationSignal, runtime.signal])
-        const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger }, analysisSignal)
+        const catalog = await analysisModels({ llm: runtime.llm, logger: ctx.logger, catalogInFlight: runtime.catalogInFlight }, analysisSignal)
         analysisSignal.throwIfAborted()
         const defaultSelection = ctx.get('agentDefaultModel')?.currentSelection()
         return {

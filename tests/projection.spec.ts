@@ -64,7 +64,7 @@ describe('tokenUsageRecorder projection', () => {
     }
 
     try {
-      expect(definition.stateVersion).toBe(6)
+      expect(definition.stateVersion).toBe(7)
       expect(ctx.sessionProjections.restoreFloor(legacyCheckpoint)).toBe(0)
       const restored = ctx.sessionProjections.restore(legacyCheckpoint, events, 0)
       expect(restored.snapshot.values.tokenUsageRecorder).toMatchObject({
@@ -83,7 +83,7 @@ describe('tokenUsageRecorder projection', () => {
           cacheWriteTokens: 0,
         },
       })
-      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 6, seq: 3 })
+      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 7, seq: 3 })
     } finally {
       unregister()
       await ctx.fiber.dispose()
@@ -200,11 +200,32 @@ describe('tokenUsageRecorder projection', () => {
           cacheWriteTokens: 1,
         },
       }],
+      modelDays: [{
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        date: '1970-01-01',
+        usage: {
+          uncachedInputTokens: 12,
+          outputTokens: 4,
+          cacheReadTokens: 8,
+          cacheWriteTokens: 1,
+        },
+      }, {
+        provider: 'deepseek',
+        model: 'deepseek-reasoner',
+        date: '1970-01-01',
+        usage: {
+          uncachedInputTokens: 20,
+          outputTokens: 5,
+          cacheReadTokens: 2,
+          cacheWriteTokens: 0,
+        },
+      }],
     })
     expect(JSON.parse(JSON.stringify(state))).toEqual(state)
   })
 
-  it('moves a finalized replacement sample to its reporting day', () => {
+  it('moves a finalized replacement sample to its authoritative route and reporting day', () => {
     let state = definition.init()
     state = definition.apply(state, event({
       seq: 0,
@@ -233,13 +254,25 @@ describe('tokenUsageRecorder projection', () => {
           id: 'message-1',
           role: 'assistant',
           content: [],
-          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-chat' },
+          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-reasoner' },
         },
         usage: { inputTokens: 12, outputTokens: 2 },
       },
     }))
 
-    expect(definition.view(state).days).toEqual([{
+    const view = definition.view(state)
+    expect(view.days).toEqual([{
+      date: '2026-08-13',
+      usage: {
+        uncachedInputTokens: 12,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+    }])
+    expect(view.modelDays).toEqual([{
+      provider: 'deepseek',
+      model: 'deepseek-reasoner',
       date: '2026-08-13',
       usage: {
         uncachedInputTokens: 12,
@@ -354,7 +387,105 @@ describe('tokenUsageRecorder projection', () => {
           cacheWriteTokens: 0,
         },
       }],
+      modelDays: [{
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        date: '1970-01-01',
+        usage: {
+          uncachedInputTokens: 18,
+          outputTokens: 4,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+      }],
     })
+  })
+
+  it('conserves route-day and daily totals across a retry, route/day replacement, and compaction', () => {
+    let state = definition.init()
+    const events = [
+      {
+        seq: 0,
+        time: Date.parse('2026-08-12T23:59:00.000Z'),
+        type: 'request/context',
+        data: { provider: 'provider-a', model: 'model-a' },
+      },
+      {
+        seq: 1,
+        time: Date.parse('2026-08-12T23:59:30.000Z'),
+        type: 'assistant/chunk',
+        data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } } },
+      },
+      {
+        seq: 2,
+        time: Date.parse('2026-08-12T23:59:40.000Z'),
+        type: 'llm/retry',
+        data: { retryId: 'retry-1', turn: 1, step: 1, retry: 1, failure: { code: 'SERVER', message: 'private' } },
+      },
+      {
+        seq: 3,
+        time: Date.parse('2026-08-13T00:00:00.000Z'),
+        type: 'request/context',
+        data: { provider: 'provider-b', model: 'model-b' },
+      },
+      {
+        seq: 4,
+        time: Date.parse('2026-08-13T00:00:10.000Z'),
+        type: 'assistant/chunk',
+        data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 20, outputTokens: 4 } } },
+      },
+      {
+        seq: 5,
+        time: Date.parse('2026-08-13T00:00:20.000Z'),
+        type: 'assistant/message',
+        data: {
+          turn: 1,
+          step: 1,
+          message: {
+            id: 'message-1',
+            role: 'assistant',
+            content: [],
+            source: { kind: 'model', provider: 'provider-b', model: 'model-b' },
+          },
+          usage: { inputTokens: 22, outputTokens: 5 },
+        },
+      },
+      {
+        seq: 6,
+        time: Date.parse('2026-08-13T00:01:00.000Z'),
+        type: 'compaction/summary',
+        data: {
+          compactionId: 'compaction-1',
+          summary: [],
+          shadowedRange: { start: 0, end: 1 },
+          shadowedSeqs: [0, 1],
+          shadowedTokenCount: 20,
+          provider: 'provider-c',
+          model: 'model-c',
+          usage: { inputTokens: 7, outputTokens: 3 },
+        },
+      },
+    ]
+    for (const item of events) state = definition.apply(state, event(item))
+    const view = definition.view(state)
+    const sum = (records: ReadonlyArray<{ usage: typeof view.usage }>) => records.reduce((total, record) => ({
+      uncachedInputTokens: total.uncachedInputTokens + record.usage.uncachedInputTokens,
+      outputTokens: total.outputTokens + record.usage.outputTokens,
+      cacheReadTokens: total.cacheReadTokens + record.usage.cacheReadTokens,
+      cacheWriteTokens: total.cacheWriteTokens + record.usage.cacheWriteTokens,
+    }), { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
+
+    expect(view.assistantRequests).toBe(2)
+    expect(view.compactionRequests).toBe(1)
+    expect(sum(view.modelDays)).toEqual(view.usage)
+    for (const day of view.days) {
+      expect(sum(view.modelDays.filter(modelDay => modelDay.date === day.date))).toEqual(day.usage)
+    }
+    expect(view.modelDays.map(modelDay => [modelDay.date, modelDay.provider, modelDay.model])).toEqual([
+      ['2026-08-12', 'provider-a', 'model-a'],
+      ['2026-08-13', 'provider-b', 'model-b'],
+      ['2026-08-13', 'provider-c', 'model-c'],
+    ])
   })
 
   it('counts a failed pre-usage retry as a zero-Token model attempt', () => {

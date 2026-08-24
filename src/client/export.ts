@@ -1,5 +1,6 @@
 import type {
   DailyTokenUsageRecord,
+  ModelDailyTokenUsageRecord,
   ModelTokenUsageRecord,
   PricedModelTokenUsageRecord,
   TokenUsageAnalysis,
@@ -16,19 +17,27 @@ export interface UsageExportSource {
   compactionUsage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
+  modelDays: readonly ModelDailyTokenUsageRecord[]
+  dailyCoverage: 'complete' | 'partial' | 'unavailable'
+  modelDailyCoverage: 'complete' | 'partial' | 'unavailable'
 }
 
-/** Versioned aggregate-only JSON document with exact compaction and partial public-rate pricing. */
-export interface TokenUsageExportV2 {
-  schema: 'dsh-token-usage/export-v2'
+/** Versioned aggregate-only JSON document with route-by-day usage and partial public-rate pricing. */
+export interface TokenUsageExportV3 {
+  schema: 'dsh-token-usage/export-v3'
   generatedAt: string
   timezone: 'UTC'
   totals: TokenUsageBuckets
   compactionUsage: TokenUsageBuckets
   pricingCatalogAsOf: string
   pricing: TokenUsageCostSummary
+  coverage: {
+    daily: UsageExportSource['dailyCoverage']
+    modelDaily: UsageExportSource['modelDailyCoverage']
+  }
   models: PricedModelTokenUsageRecord[]
   days: DailyTokenUsageRecord[]
+  modelDays: ModelDailyTokenUsageRecord[]
 }
 
 /** Browser download Adapter owned by the Client plugin registration. */
@@ -65,22 +74,36 @@ function copiedPricing(models: readonly ModelTokenUsageRecord[]): TokenUsageCost
 }
 
 /** Stable aggregate-only document that never accepts session data. */
-export function tokenUsageExport(source: UsageExportSource, generatedAt: string): TokenUsageExportV2 {
+export function tokenUsageExport(source: UsageExportSource, generatedAt: string): TokenUsageExportV3 {
   const pricing = copiedPricing(source.models)
   return {
-    schema: 'dsh-token-usage/export-v2',
+    schema: 'dsh-token-usage/export-v3',
     generatedAt,
     timezone: 'UTC',
     totals: copyBuckets(source.usage),
     compactionUsage: copyBuckets(source.compactionUsage),
     pricingCatalogAsOf: PUBLIC_PRICE_CATALOG_AS_OF,
     pricing,
+    coverage: {
+      daily: source.dailyCoverage,
+      modelDaily: source.modelDailyCoverage,
+    },
     models: pricing.models
       .slice()
       .sort((left, right) => left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model)),
     days: source.days
       .map(day => ({ date: day.date, usage: copyBuckets(day.usage) }))
       .sort((left, right) => left.date.localeCompare(right.date)),
+    modelDays: source.modelDays
+      .map(modelDay => ({
+        provider: modelDay.provider,
+        model: modelDay.model,
+        date: modelDay.date,
+        usage: copyBuckets(modelDay.usage),
+      }))
+      .sort((left, right) => left.date.localeCompare(right.date)
+        || left.provider.localeCompare(right.provider)
+        || left.model.localeCompare(right.model)),
   }
 }
 
@@ -91,7 +114,7 @@ export function tokenUsageJson(source: UsageExportSource, generatedAt: string): 
 
 /** Prevent spreadsheet applications from interpreting an untrusted cell as a formula. */
 function spreadsheetText(value: string): string {
-  return /^[=+\-@]/.test(value) ? `'${value}` : value
+  return /^[\u0000-\u0020]*[=+\-@]/.test(value) ? `'${value}` : value
 }
 
 /** Escape one scalar value as a CSV cell. */
@@ -120,6 +143,32 @@ export function dailyUsageCsv(source: Pick<UsageExportSource, 'days'>): string {
         day.usage.cacheWriteTokens,
         day.usage.uncachedInputTokens + day.usage.cacheReadTokens + day.usage.cacheWriteTokens,
         day.usage.uncachedInputTokens + day.usage.cacheReadTokens + day.usage.cacheWriteTokens + day.usage.outputTokens,
+      ]),
+  ])
+}
+
+/** Export exact route-by-day buckets only when the source proves complete coverage. */
+export function modelDailyUsageCsv(source: Pick<UsageExportSource, 'modelDays' | 'modelDailyCoverage'>): string {
+  if (source.modelDailyCoverage !== 'complete') {
+    throw new Error('Date-by-model CSV requires complete and conserved route-day coverage.')
+  }
+  return csv([
+    ['date', 'provider', 'model', 'uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'inputTokens', 'totalTokens'],
+    ...source.modelDays
+      .slice()
+      .sort((left, right) => left.date.localeCompare(right.date)
+        || left.provider.localeCompare(right.provider)
+        || left.model.localeCompare(right.model))
+      .map(modelDay => [
+        modelDay.date,
+        modelDay.provider,
+        modelDay.model,
+        modelDay.usage.uncachedInputTokens,
+        modelDay.usage.outputTokens,
+        modelDay.usage.cacheReadTokens,
+        modelDay.usage.cacheWriteTokens,
+        modelDay.usage.uncachedInputTokens + modelDay.usage.cacheReadTokens + modelDay.usage.cacheWriteTokens,
+        modelDay.usage.uncachedInputTokens + modelDay.usage.cacheReadTokens + modelDay.usage.cacheWriteTokens + modelDay.usage.outputTokens,
       ]),
   ])
 }
