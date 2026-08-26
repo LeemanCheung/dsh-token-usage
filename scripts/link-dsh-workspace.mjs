@@ -62,7 +62,9 @@ function discoverWorkspacePackages(directory) {
   }
 }
 
-mergeInstalledPackages(join(harnessRoot, 'node_modules', '.pnpm', 'node_modules'))
+const virtualStore = join(harnessRoot, 'node_modules', '.pnpm')
+if (existsSync(virtualStore)) replaceLink(join(targetRoot, '.pnpm'), virtualStore)
+mergeInstalledPackages(join(virtualStore, 'node_modules'))
 mergeInstalledPackages(join(harnessRoot, 'node_modules'))
 discoverWorkspacePackages(join(harnessRoot, 'vendor'))
 discoverWorkspacePackages(join(harnessRoot, 'packages'))
