@@ -11,7 +11,8 @@ permissions:
   contents: write
 
 env:
-  DSH_REF: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+  DSH_REF: fb82698709c39f1860b0ab0ed147e1fa30c1d5d0
+  DSH_VERSION: 0.1.0-rc.6
   DSH_PNPM_VERSION: 11.7.0
 
 jobs:
@@ -49,8 +50,30 @@ jobs:
           corepack prepare "pnpm@$DSH_PNPM_VERSION" --activate
           pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
           ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
-          ln -sfn "$harness/node_modules" "$GITHUB_WORKSPACE/node_modules"
-          echo "$harness/node_modules/.bin" >> "$GITHUB_PATH"
+
+          node <<'NODE' > "$RUNNER_TEMP/plugin-dependencies.txt"
+          const { readFileSync } = require('node:fs')
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
+          const dependencies = Object.entries(manifest.peerDependencies).map(([name, range]) =>
+            name.startsWith('@deepseek-ai/dsh-')
+              ? `${name}@${process.env.DSH_VERSION}`
+              : `${name}@${range}`)
+          dependencies.push(
+            '@testing-library/react@16.3.2',
+            '@types/node@22.20.0',
+            '@types/react@~18.3.1',
+            '@types/react-dom@~18.3.0',
+            'jsdom@29.1.1',
+            'react-dom@18.3.1',
+            'typescript@6.0.3',
+            'vitest@4.1.8',
+            'tsdown@0.22.2',
+          )
+          process.stdout.write(`${dependencies.join('\n')}\n`)
+          NODE
+          mapfile -t plugin_dependencies < "$RUNNER_TEMP/plugin-dependencies.txt"
+          npm install --ignore-scripts --no-save --package-lock=false "${plugin_dependencies[@]}"
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Validate repaired source
         shell: bash
