@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  DSH_REF: fb82698709c39f1860b0ab0ed147e1fa30c1d5d0
+  DSH_PNPM_VERSION: 11.7.0
+
 jobs:
   prepare:
     if: github.actor != 'github-actions[bot]'
@@ -21,16 +25,15 @@ jobs:
           fetch-depth: 0
           ref: feat/token-usage-high-value-insights
 
-      - name: Set up Node.js
+      - name: Use Node.js 22.19.0
         uses: actions/setup-node@v4
         with:
-          node-version: 22.20.0
-          cache: npm
-          cache-dependency-path: package.json
+          node-version: 22.19.0
 
       - name: Apply reviewed attribution fixes and regression tests
         shell: bash
         run: |
+          set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
@@ -42,15 +45,8 @@ jobs:
                   "  return fallback ?? { provider: '', model: '' }",
               ),
               (
-                  """    if (previous !== null
-                    && previous.route.provider === route.provider
-                    && previous.route.model === route.model
-                    && bucketsEqual(previous.usage, usage)) return state""",
-                  """    if (previous !== null
-                    && previous.route.provider === route.provider
-                    && previous.route.model === route.model
-                    && previous.day === day
-                    && bucketsEqual(previous.usage, usage)) return state""",
+                  "      && previous.route.model === route.model\n      && bucketsEqual(previous.usage, usage)) return state",
+                  "      && previous.route.model === route.model\n      && previous.day === day\n      && bucketsEqual(previous.usage, usage)) return state",
               ),
               ("  stateVersion: 7,", "  stateVersion: 8,"),
           ]
@@ -183,21 +179,29 @@ jobs:
           """, encoding='utf-8')
           PY
 
-      - name: Install runtime peers and verification tooling
+      - name: Build pinned DeepSeek Harness toolchain
         shell: bash
         run: |
-          npm install --include=peer --ignore-scripts --no-package-lock
-          npm install --no-save --ignore-scripts --no-package-lock \
-            typescript@6.0.3 tsdown@0.22.2 vitest@4.1.8 \
-            @types/node@22.20.0 @types/react@18.3.28 @types/jsdom@28.0.3 \
-            jsdom@29.1.1 @testing-library/dom@10.4.1 @testing-library/react@16.3.2 \
-            react-dom@18.3.1
-
-      - name: Run unit and component tests
-        run: npm test
+          set -euo pipefail
+          harness="$RUNNER_TEMP/deepseek-harness"
+          git init "$harness"
+          git -C "$harness" remote add origin https://github.com/deepseek-ai/deepseek-harness.git
+          git -C "$harness" fetch --depth 1 origin "$DSH_REF"
+          git -C "$harness" checkout --detach FETCH_HEAD
+          corepack enable
+          corepack prepare "pnpm@$DSH_PNPM_VERSION" --activate
+          pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
+          pnpm --dir "$harness" run build:lib
+          ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
+          node --check scripts/link-dsh-workspace.mjs
+          node scripts/link-dsh-workspace.mjs "$harness" "$GITHUB_WORKSPACE/node_modules"
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Run host and client type checks
         run: npm run typecheck
+
+      - name: Run unit and component tests
+        run: npm test
 
       - name: Rebuild committed host and client bundles
         run: npm run build
@@ -205,13 +209,15 @@ jobs:
       - name: Validate repository and package payload
         shell: bash
         run: |
+          set -euo pipefail
           git diff --check
-          npm pack --dry-run --json > /tmp/dsh-token-usage-pack.json
-          node -e "const p=require('/tmp/dsh-token-usage-pack.json'); if (!Array.isArray(p) || p[0]?.name !== 'dsh-token-usage' || p[0]?.version !== '0.2.0') process.exit(1)"
+          npm pack --dry-run --json > "$RUNNER_TEMP/dsh-token-usage-pack.json"
+          node -e "const p=require(process.env.RUNNER_TEMP + '/dsh-token-usage-pack.json'); if (!Array.isArray(p) || p[0]?.name !== 'dsh-token-usage' || p[0]?.version !== '0.2.0') process.exit(1)"
 
       - name: Commit verified fixes and generated bundles
         shell: bash
         run: |
+          set -euo pipefail
           rm -f .github/workflows/prepare-token-usage-pr.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
