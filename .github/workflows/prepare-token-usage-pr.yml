@@ -2,8 +2,7 @@ name: Prepare token usage review fixes
 
 on:
   push:
-    branches:
-      - feat/token-usage-high-value-insights
+    branches: [feat/token-usage-high-value-insights]
 
 permissions:
   contents: write
@@ -13,51 +12,38 @@ env:
   DSH_PNPM_VERSION: 11.7.0
 
 jobs:
-  prepare:
+  diagnose:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Check out candidate branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: feat/token-usage-high-value-insights
-
-      - name: Use Node.js 22.19.0
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-
-      - name: Apply reviewed attribution fixes and regression tests
+      - name: Apply reviewed fixes
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-
-          projection = Path('src/projection.ts')
-          text = projection.read_text(encoding='utf-8')
+          path = Path('src/projection.ts')
+          text = path.read_text()
           replacements = [
-              (
-                  "  return fallback ?? { provider: 'unknown', model: 'unknown' }",
-                  "  return fallback ?? { provider: '', model: '' }",
-              ),
-              (
-                  "      && previous.route.model === route.model\n      && bucketsEqual(previous.usage, usage)) return state",
-                  "      && previous.route.model === route.model\n      && previous.day === day\n      && bucketsEqual(previous.usage, usage)) return state",
-              ),
-              ("  stateVersion: 7,", "  stateVersion: 8,"),
+            ("  return fallback ?? { provider: 'unknown', model: 'unknown' }", "  return fallback ?? { provider: '', model: '' }"),
+            ("      && previous.route.model === route.model\n      && bucketsEqual(previous.usage, usage)) return state", "      && previous.route.model === route.model\n      && previous.day === day\n      && bucketsEqual(previous.usage, usage)) return state"),
+            ("  stateVersion: 7,", "  stateVersion: 8,"),
           ]
           for old, new in replacements:
-              if old not in text:
-                  raise SystemExit(f'Expected projection fragment not found: {old!r}')
-              text = text.replace(old, new, 1)
-          projection.write_text(text, encoding='utf-8')
+            if old not in text: raise SystemExit(f'missing fragment: {old!r}')
+            text = text.replace(old, new, 1)
+          path.write_text(text)
 
-          component = Path('src/client/TokenUsageSection.tsx')
-          text = component.read_text(encoding='utf-8')
+          path = Path('src/client/TokenUsageSection.tsx')
+          text = path.read_text()
           old = """function isUnattributed(model: ModelTokenUsageRecord): boolean {
             return model.provider === '' && model.model === ''
           }"""
@@ -65,120 +51,9 @@ jobs:
             return (model.provider === '' && model.model === '')
               || (model.provider === 'unknown' && model.model === 'unknown')
           }"""
-          if old not in text:
-              raise SystemExit('Expected isUnattributed implementation not found')
-          component.write_text(text.replace(old, new, 1), encoding='utf-8')
-
-          Path('tests/projection-review-regressions.spec.ts').write_text(r"""import { describe, expect, it } from 'vitest'
-          import type { SessionEvent } from '@deepseek-ai/dsh-session'
-          import { projectTokenUsage, tokenUsageRecorderProjectionDefinition } from '../src/projection.ts'
-
-          const providerUsage = {
-            inputTokens: 100,
-            outputTokens: 20,
-            cacheReadTokens: 30,
-            cacheWriteTokens: 4,
-          }
-
-          const buckets = {
-            uncachedInputTokens: 100,
-            outputTokens: 20,
-            cacheReadTokens: 30,
-            cacheWriteTokens: 4,
-          }
-
-          function event(value: unknown): SessionEvent {
-            return value as SessionEvent
-          }
-
-          describe('projection review regressions', () => {
-            it('reattributes an identical final sample to its authoritative UTC day', () => {
-              const result = projectTokenUsage([
-                event({
-                  type: 'request/context',
-                  time: Date.parse('2026-08-25T23:59:58.000Z'),
-                  data: { provider: 'provider-a', model: 'model-a' },
-                }),
-                event({
-                  type: 'assistant/chunk',
-                  time: Date.parse('2026-08-25T23:59:59.000Z'),
-                  data: { turn: 1, step: 1, chunk: { type: 'usage', usage: providerUsage } },
-                }),
-                event({
-                  type: 'assistant/message',
-                  time: Date.parse('2026-08-26T00:00:01.000Z'),
-                  data: {
-                    turn: 1,
-                    step: 1,
-                    message: { source: { kind: 'model', provider: 'provider-a', model: 'model-a' } },
-                    usage: providerUsage,
-                  },
-                }),
-              ])
-
-              expect(result.assistantRequests).toBe(1)
-              expect(result.usage).toEqual(buckets)
-              expect(result.days).toEqual([{ date: '2026-08-26', usage: buckets }])
-              expect(result.modelDays).toEqual([{
-                provider: 'provider-a',
-                model: 'model-a',
-                date: '2026-08-26',
-                usage: buckets,
-              }])
-            })
-
-            it('records usage without an authoritative route as explicitly unattributed', () => {
-              const result = projectTokenUsage([
-                event({
-                  type: 'assistant/chunk',
-                  time: Date.parse('2026-08-26T08:00:00.000Z'),
-                  data: { turn: 1, step: 1, chunk: { type: 'usage', usage: providerUsage } },
-                }),
-              ])
-
-              expect(result.models).toEqual([{
-                provider: '',
-                model: '',
-                assistantRequests: 1,
-                compactionRequests: 0,
-                usage: buckets,
-              }])
-              expect(result.modelDays).toEqual([{
-                provider: '',
-                model: '',
-                date: '2026-08-26',
-                usage: buckets,
-              }])
-              expect(tokenUsageRecorderProjectionDefinition.stateVersion).toBe(8)
-            })
-          })
-          """, encoding='utf-8')
-
-          Path('tests/route-identity.client.spec.ts').write_text(r"""import { describe, expect, it } from 'vitest'
-          import type { ModelTokenUsageRecord } from '../src/types.ts'
-          import { isUnattributed } from '../src/client/TokenUsageSection.tsx'
-
-          const usage = {
-            uncachedInputTokens: 0,
-            outputTokens: 0,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-          }
-
-          function route(provider: string, model: string): ModelTokenUsageRecord {
-            return { provider, model, assistantRequests: 0, compactionRequests: 0, usage }
-          }
-
-          describe('route attribution identity', () => {
-            it('excludes both legacy and projection fallback identities from exact-route controls', () => {
-              expect(isUnattributed(route('', ''))).toBe(true)
-              expect(isUnattributed(route('unknown', 'unknown'))).toBe(true)
-              expect(isUnattributed(route('deepseek', 'deepseek-chat'))).toBe(false)
-            })
-          })
-          """, encoding='utf-8')
+          if old not in text: raise SystemExit('missing isUnattributed')
+          path.write_text(text.replace(old, new, 1))
           PY
-
       - name: Build pinned DeepSeek Harness toolchain
         shell: bash
         run: |
@@ -192,35 +67,32 @@ jobs:
           corepack prepare "pnpm@$DSH_PNPM_VERSION" --activate
           pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
           pnpm --dir "$harness" run build:lib
-          ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
-          node --check scripts/link-dsh-workspace.mjs
           node scripts/link-dsh-workspace.mjs "$harness" "$GITHUB_WORKSPACE/node_modules"
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
-
-      - name: Run host and client type checks
-        run: npm run typecheck
-
-      - name: Run unit and component tests
-        run: npm test
-
-      - name: Rebuild committed host and client bundles
-        run: npm run build
-
-      - name: Validate repository and package payload
+      - name: Capture typecheck output
+        id: typecheck
         shell: bash
         run: |
-          set -euo pipefail
-          git diff --check
-          npm pack --dry-run --json > "$RUNNER_TEMP/dsh-token-usage-pack.json"
-          node -e "const p=require(process.env.RUNNER_TEMP + '/dsh-token-usage-pack.json'); if (!Array.isArray(p) || p[0]?.name !== 'dsh-token-usage' || p[0]?.version !== '0.2.0') process.exit(1)"
-
-      - name: Commit verified fixes and generated bundles
+          set +e
+          npm run typecheck > TYPECHECK_FAILURE.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          cat TYPECHECK_FAILURE.log
+          exit 0
+      - name: Persist diagnostics
+        if: steps.typecheck.outputs.status != '0'
         shell: bash
         run: |
           set -euo pipefail
           rm -f .github/workflows/prepare-token-usage-pr.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: close token usage attribution gaps"
+          git add TYPECHECK_FAILURE.log .github/workflows/prepare-token-usage-pr.yml
+          git commit -m "chore: capture token usage typecheck failure"
           git push origin HEAD:feat/token-usage-high-value-insights
+      - name: Fail after diagnostics
+        if: steps.typecheck.outputs.status != '0'
+        run: exit 1
+      - name: Mark diagnostic success
+        if: steps.typecheck.outputs.status == '0'
+        run: echo "Typecheck passed"
