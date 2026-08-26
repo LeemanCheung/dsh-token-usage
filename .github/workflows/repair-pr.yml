@@ -49,7 +49,6 @@ jobs:
           corepack prepare "pnpm@$DSH_PNPM_VERSION" --activate
           pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
           pnpm --dir "$harness" run build:lib
-          ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
           node --check scripts/link-dsh-workspace.mjs
           node scripts/link-dsh-workspace.mjs "$harness" "$GITHUB_WORKSPACE/node_modules"
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
@@ -69,15 +68,16 @@ jobs:
           set -euo pipefail
           git diff --check
           npm pack --dry-run --json | tee "$RUNNER_TEMP/npm-pack.json"
+          node -e "const p=require(process.env.RUNNER_TEMP + '/npm-pack.json'); if (!Array.isArray(p) || p[0]?.name !== 'dsh-token-usage' || p[0]?.version !== '0.2.0') process.exit(1)"
 
-      - name: Commit repaired source, tests, docs, and bundles
+      - name: Commit verified source, tests, docs, CI, and bundles
         shell: bash
         run: |
           set -euo pipefail
-          git rm scripts/repair-pr.mjs
+          git rm -f .github/workflows/repair-pr.yml scripts/repair-pr.mjs TYPECHECK_FAILURE.log
           git add -A
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix: harden route accounting and add CI"
+          git commit -m "fix: harden route accounting and verification"
           git push origin "HEAD:${GITHUB_REF_NAME}"
