@@ -60,7 +60,7 @@ if (!readme.includes('## 🧪 开发验证')) {
     '- Host 与 Web Client bundle 重建，并校验提交的 `lib/` 产物没有漂移；',
     '- `npm pack --dry-run --json` 包内容校验。',
     '',
-    'CI 当前固定在 DeepSeek Harness `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`（`dsh@0.1.1-rc.2` 发布提交）与 Node.js `22.19.0`。本地构建仍遵循 DSH 插件约定：将 DeepSeek Harness 仓库放在本仓库同级的 `../deepseek-harness`，再运行 `npm run typecheck && npm test && npm run build`。',
+    'CI 当前固定在 DeepSeek Harness `fb82698709c39f1860b0ab0ed147e1fa30c1d5d0`（`dsh@0.1.0-rc.6` 发布提交）与 Node.js `22.19.0`。本地构建仍遵循 DSH 插件约定：将 DeepSeek Harness 仓库放在本仓库同级的 `../deepseek-harness`，再运行 `npm run typecheck && npm test && npm run build`。',
     '',
   ].join('\n')
   readme = readme.trimEnd() + validationSection
