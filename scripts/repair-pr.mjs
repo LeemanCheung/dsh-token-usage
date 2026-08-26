@@ -29,7 +29,7 @@ replaceExact(
 )
 
 const projectionTestPath = 'tests/projection.spec.ts'
-const projectionMarker = "moves an identical final sample to its authoritative UTC day"
+const projectionMarker = 'moves an identical final sample to its authoritative UTC day'
 if (!read(projectionTestPath).includes(projectionMarker)) {
   const projectionTest = `\n\ndescribe('authoritative UTC day attribution', () => {\n  it('${projectionMarker}', () => {\n    const provisionalTime = Date.parse('2026-01-01T23:59:59.000Z')\n    const finalTime = Date.parse('2026-01-02T00:00:01.000Z')\n    const expectedUsage = {\n      uncachedInputTokens: 10,\n      outputTokens: 2,\n      cacheReadTokens: 5,\n      cacheWriteTokens: 1,\n    }\n    let state = definition.init()\n    state = definition.apply(state, event({\n      seq: 0,\n      time: provisionalTime - 1_000,\n      type: 'request/context',\n      data: { provider: 'deepseek', model: 'deepseek-chat' },\n    }))\n    state = definition.apply(state, event({\n      seq: 1,\n      time: provisionalTime,\n      type: 'assistant/chunk',\n      data: {\n        turn: 1,\n        step: 1,\n        chunk: {\n          type: 'usage',\n          usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },\n        },\n      },\n    }))\n    state = definition.apply(state, event({\n      seq: 2,\n      time: finalTime,\n      type: 'assistant/message',\n      data: {\n        turn: 1,\n        step: 1,\n        message: {\n          id: 'message-midnight',\n          role: 'assistant',\n          content: [],\n          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-chat' },\n        },\n        usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },\n      },\n    }))\n\n    const view = definition.view(state)\n    expect(view.assistantRequests).toBe(1)\n    expect(view.usage).toEqual(expectedUsage)\n    expect(view.days).toEqual([{ date: '2026-01-02', usage: expectedUsage }])\n    expect(view.modelDays).toEqual([{\n      provider: 'deepseek',\n      model: 'deepseek-chat',\n      date: '2026-01-02',\n      usage: expectedUsage,\n    }])\n  })\n})\n`
   write(projectionTestPath, `${read(projectionTestPath).trimEnd()}${projectionTest}`)
@@ -49,7 +49,21 @@ if (!readme.includes('actions/workflows/ci.yml/badge.svg')) {
   )
 }
 if (!readme.includes('## 🧪 开发验证')) {
-  readme = `${readme.trimEnd()}\n\n## 🧪 开发验证\n\n主仓库 CI 固定复用 DeepSeek Harness 的官方构建预设与工具链，而不是另行维护一套可能漂移的插件打包配置。每个 Pull Request 和主分支提交都会执行：\n\n- Host / Client TypeScript 严格类型检查；\n- 全量 Vitest 回归测试；\n- Host 与 Web Client bundle 重建，并校验提交的 \\`lib/\\` 产物没有漂移；\n- \\`npm pack --dry-run --json\\` 包内容校验。\n\nCI 当前固定在 DeepSeek Harness \\`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e\\`（\\`dsh@0.1.1-rc.2\\` 发布提交）与 Node.js \\`22.19.0\\`。本地构建仍遵循 DSH 插件约定：将 DeepSeek Harness 仓库放在本仓库同级的 \\`../deepseek-harness\\`，再运行 \\`npm run typecheck && npm test && npm run build\\`。\n`
+  const validationSection = [
+    '',
+    '## 🧪 开发验证',
+    '',
+    '主仓库 CI 固定复用 DeepSeek Harness 的官方构建预设与工具链，而不是另行维护一套可能漂移的插件打包配置。每个 Pull Request 和主分支提交都会执行：',
+    '',
+    '- Host / Client TypeScript 严格类型检查；',
+    '- 全量 Vitest 回归测试；',
+    '- Host 与 Web Client bundle 重建，并校验提交的 `lib/` 产物没有漂移；',
+    '- `npm pack --dry-run --json` 包内容校验。',
+    '',
+    'CI 当前固定在 DeepSeek Harness `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`（`dsh@0.1.1-rc.2` 发布提交）与 Node.js `22.19.0`。本地构建仍遵循 DSH 插件约定：将 DeepSeek Harness 仓库放在本仓库同级的 `../deepseek-harness`，再运行 `npm run typecheck && npm test && npm run build`。',
+    '',
+  ].join('\n')
+  readme = readme.trimEnd() + validationSection
 }
 write(readmePath, readme)
 
