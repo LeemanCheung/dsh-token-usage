@@ -23,6 +23,12 @@ replaceExact(
 )
 
 replaceExact(
+  'src/projection.ts',
+  '  stateVersion: 7,',
+  '  stateVersion: 8,',
+)
+
+replaceExact(
   'src/client/TokenUsageSection.tsx',
   `function isUnattributed(model: ModelTokenUsageRecord): boolean {\n  return model.provider === '' && model.model === ''\n}`,
   `export function isUnattributed(model: ModelTokenUsageRecord): boolean {\n  return (model.provider === '' && model.model === '')\n    || (model.provider === 'unknown' && model.model === 'unknown')\n}`,
@@ -31,7 +37,7 @@ replaceExact(
 const projectionTestPath = 'tests/projection.spec.ts'
 const projectionMarker = 'moves an identical final sample to its authoritative UTC day'
 if (!read(projectionTestPath).includes(projectionMarker)) {
-  const projectionTest = `\n\ndescribe('authoritative UTC day attribution', () => {\n  it('${projectionMarker}', () => {\n    const provisionalTime = Date.parse('2026-01-01T23:59:59.000Z')\n    const finalTime = Date.parse('2026-01-02T00:00:01.000Z')\n    const expectedUsage = {\n      uncachedInputTokens: 10,\n      outputTokens: 2,\n      cacheReadTokens: 5,\n      cacheWriteTokens: 1,\n    }\n    let state = definition.init()\n    state = definition.apply(state, event({\n      seq: 0,\n      time: provisionalTime - 1_000,\n      type: 'request/context',\n      data: { provider: 'deepseek', model: 'deepseek-chat' },\n    }))\n    state = definition.apply(state, event({\n      seq: 1,\n      time: provisionalTime,\n      type: 'assistant/chunk',\n      data: {\n        turn: 1,\n        step: 1,\n        chunk: {\n          type: 'usage',\n          usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },\n        },\n      },\n    }))\n    state = definition.apply(state, event({\n      seq: 2,\n      time: finalTime,\n      type: 'assistant/message',\n      data: {\n        turn: 1,\n        step: 1,\n        message: {\n          id: 'message-midnight',\n          role: 'assistant',\n          content: [],\n          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-chat' },\n        },\n        usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },\n      },\n    }))\n\n    const view = definition.view(state)\n    expect(view.assistantRequests).toBe(1)\n    expect(view.usage).toEqual(expectedUsage)\n    expect(view.days).toEqual([{ date: '2026-01-02', usage: expectedUsage }])\n    expect(view.modelDays).toEqual([{\n      provider: 'deepseek',\n      model: 'deepseek-chat',\n      date: '2026-01-02',\n      usage: expectedUsage,\n    }])\n  })\n})\n`
+  const projectionTest = `\n\ndescribe('authoritative UTC day attribution', () => {\n  it('${projectionMarker}', () => {\n    const provisionalTime = Date.parse('2026-01-01T23:59:59.000Z')\n    const finalTime = Date.parse('2026-01-02T00:00:01.000Z')\n    const expectedUsage = {\n      uncachedInputTokens: 10,\n      outputTokens: 2,\n      cacheReadTokens: 5,\n      cacheWriteTokens: 1,\n    }\n    let state = definition.init()\n    state = definition.apply(state, event({\n      seq: 0,\n      time: provisionalTime - 1_000,\n      type: 'request/context',\n      data: { provider: 'deepseek', model: 'deepseek-chat' },\n    }))\n    state = definition.apply(state, event({\n      seq: 1,\n      time: provisionalTime,\n      type: 'assistant/chunk',\n      data: {\n        turn: 1,\n        step: 1,\n        chunk: {\n          type: 'usage',\n          usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },\n        },\n      },\n    }))\n    state = definition.apply(state, event({\n      seq: 2,\n      time: finalTime,\n      type: 'assistant/message',\n      data: {\n        turn: 1,\n        step: 1,\n        message: {\n          id: 'message-midnight',\n          role: 'assistant',\n          content: [],\n          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-chat' },\n        },\n        usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 1 },\n      },\n    }))\n\n    const view = definition.view(state)\n    expect(definition.stateVersion).toBe(8)\n    expect(view.assistantRequests).toBe(1)\n    expect(view.usage).toEqual(expectedUsage)\n    expect(view.days).toEqual([{ date: '2026-01-02', usage: expectedUsage }])\n    expect(view.modelDays).toEqual([{\n      provider: 'deepseek',\n      model: 'deepseek-chat',\n      date: '2026-01-02',\n      usage: expectedUsage,\n    }])\n  })\n})\n`
   write(projectionTestPath, `${read(projectionTestPath).trimEnd()}${projectionTest}`)
 }
 
@@ -67,4 +73,4 @@ if (!readme.includes('## 🧪 开发验证')) {
 }
 write(readmePath, readme)
 
-console.log('Applied UTC-day attribution, fallback-route, regression-test, and README updates.')
+console.log('Applied UTC-day attribution, projection cache, fallback-route, regression-test, and README updates.')
