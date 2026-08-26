@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DSH_REF: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+  DSH_PNPM_VERSION: 11.7.0
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: Bootstrap pinned DeepSeek Harness toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          harness="$RUNNER_TEMP/deepseek-harness"
+          git init "$harness"
+          git -C "$harness" remote add origin https://github.com/deepseek-ai/deepseek-harness.git
+          git -C "$harness" fetch --depth 1 origin "$DSH_REF"
+          git -C "$harness" checkout --detach FETCH_HEAD
+          corepack enable
+          corepack prepare "pnpm@$DSH_PNPM_VERSION" --activate
+          pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
+          ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
+          ln -sfn "$harness/node_modules" "$GITHUB_WORKSPACE/node_modules"
+          echo "$harness/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Typecheck host and client
+        run: npm run typecheck
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Rebuild committed bundles
+        run: npm run build
+
+      - name: Verify generated artifacts and package payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --exit-code -- lib
+          npm pack --dry-run --json | tee "$RUNNER_TEMP/npm-pack.json"
