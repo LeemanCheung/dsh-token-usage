@@ -1,4 +1,3 @@
-# Temporary self-cleaning workflow: regenerates verified bundles, then removes itself.
 name: Repair PR branch
 
 on:
@@ -32,7 +31,7 @@ jobs:
         with:
           node-version: 22.19.0
 
-      - name: Apply reviewed fixes and regression tests
+      - name: Apply reviewed source fixes and regression tests
         run: |
           node --check scripts/repair-pr.mjs
           node scripts/repair-pr.mjs
@@ -57,13 +56,13 @@ jobs:
       - name: Typecheck repaired source
         run: npm run typecheck
 
-      - name: Run repaired regression tests
+      - name: Run complete regression suite
         run: npm test
 
-      - name: Rebuild repaired bundles
+      - name: Rebuild committed bundles
         run: npm run build
 
-      - name: Validate package payload
+      - name: Validate generated files and package payload
         shell: bash
         run: |
           set -euo pipefail
@@ -71,14 +70,18 @@ jobs:
           npm pack --dry-run --json | tee "$RUNNER_TEMP/npm-pack.json"
           node -e "const p=require(process.env.RUNNER_TEMP + '/npm-pack.json'); if (!Array.isArray(p) || p[0]?.name !== 'dsh-token-usage' || p[0]?.version !== '0.2.0') process.exit(1)"
 
-      - name: Commit verified source, tests, docs, CI, and bundles
+      - name: Commit verified source, tests, documentation, and bundles
         shell: bash
         run: |
           set -euo pipefail
-          git rm -f .github/workflows/repair-pr.yml scripts/repair-pr.mjs TYPECHECK_FAILURE.log
+          git rm -f scripts/repair-pr.mjs TYPECHECK_FAILURE.log
           git add -A
           git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No repaired files to commit."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix: harden route accounting and verification"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git commit -m "fix: harden route accounting and regenerate bundles"
+          git push origin "HEAD:feat/token-usage-high-value-insights"
