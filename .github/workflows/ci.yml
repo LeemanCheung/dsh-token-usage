@@ -24,8 +24,11 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Check out plugin
+      - name: Check out plugin branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - name: Use Node.js 22.19.0
         uses: actions/setup-node@v4
@@ -109,7 +112,7 @@ jobs:
           NODE
 
       - name: Persist generated bundles on feature branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/token-usage-high-value-insights'
+        if: github.head_ref == 'feat/token-usage-high-value-insights' || github.ref == 'refs/heads/feat/token-usage-high-value-insights'
         shell: bash
         run: |
           set -euo pipefail
@@ -128,10 +131,11 @@ jobs:
           if git diff --cached --quiet; then
             echo "Generated bundles are already current."
           else
+            target_branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "build: refresh generated plugin bundles"
-            git push origin "HEAD:$GITHUB_REF_NAME"
+            git push origin "HEAD:$target_branch"
           fi
 
       - name: Verify generated artifacts
