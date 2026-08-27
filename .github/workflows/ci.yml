@@ -58,10 +58,58 @@ jobs:
       - name: Rebuild committed bundles
         run: npm run build
 
-      - name: Verify generated artifacts and package payload
+      - name: Verify generated artifacts
         shell: bash
         run: |
           set -euo pipefail
           git diff --check
           git diff --exit-code -- lib
-          npm pack --dry-run --json | tee "$RUNNER_TEMP/npm-pack.json"
+
+      - name: Verify package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          npm pack --dry-run --json --pack-destination dist > dist/pack.json
+          cat dist/pack.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const results = JSON.parse(readFileSync('dist/pack.json', 'utf8'))
+          if (!Array.isArray(results) || results.length !== 1) {
+            throw new Error(`Expected one npm pack result, received ${JSON.stringify(results)}`)
+          }
+
+          const files = results[0]?.files?.map((entry) => entry.path).sort()
+          if (!Array.isArray(files)) {
+            throw new Error('npm pack result did not include a files array')
+          }
+
+          const required = [
+            'LICENSE',
+            'README.md',
+            'lib/index.cjs',
+            'lib/index.mjs',
+            'package.json',
+            'src/index.ts',
+            'src/manifests.ts',
+          ]
+          for (const path of required) {
+            if (!files.includes(path)) {
+              throw new Error(`Missing required package file: ${path}`)
+            }
+          }
+
+          const allowedExact = new Set(['LICENSE', 'README.md', 'package.json'])
+          const unexpected = files.filter((path) => (
+            !allowedExact.has(path)
+            && !path.startsWith('lib/')
+            && !path.startsWith('src/')
+          ))
+          if (unexpected.length > 0) {
+            throw new Error(`Unexpected package files: ${unexpected.join(', ')}`)
+          }
+
+          console.log(`Verified npm package contents (${files.length} files)`)
+          NODE
