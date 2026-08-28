@@ -229,12 +229,17 @@
   gap: 10px;
 }
 
+.trendControls,
 .rangeTabs,
 .exportControls {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.trendControls {
+  justify-content: flex-end;
 }
 
 .rangeTabs button,
@@ -271,6 +276,21 @@
 .exportControls > span {
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
+}
+
+.exportControls > small {
+  flex-basis: 100%;
+  max-width: 520px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: right;
+}
+
+.exportControls button:disabled,
+.quietButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .insightNote {
@@ -344,6 +364,140 @@
   color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   line-height: 18px;
+}
+
+.routeBudgets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  padding-top: 12px;
+}
+
+.routeBudgetHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.routeBudgetHead h4,
+.routeBudgetHead p {
+  margin: 0;
+}
+
+.routeBudgetHead h4 {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.routeBudgetHead p {
+  max-width: 560px;
+  margin-top: 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.routeBudgetEditor {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 132px auto;
+  align-items: end;
+  gap: 7px;
+}
+
+.routeBudgetEditor label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+}
+
+.routeBudgetEditor select,
+.routeBudgetEditor input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  padding: 0 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11px;
+}
+
+.routeBudgetEditor select:focus-visible,
+.routeBudgetEditor input:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.routeBudgetList {
+  display: flex;
+  flex-direction: column;
+}
+
+.routeBudgetRow {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.8fr) minmax(260px, 1.6fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  padding: 10px 0;
+}
+
+.routeBudgetRow:last-child {
+  padding-bottom: 0;
+}
+
+.routeBudgetIdentity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.routeBudgetIdentity > strong {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routeBudgetStatus {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+}
+
+.routeBudgetStatus[data-status='warning'],
+.routeBudgetStatus[data-status='forecast-exceeded'] {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.routeBudgetStatus[data-status='exceeded'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.routeBudgetStatus[data-status='unavailable'] {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.routeBudgetUsage {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.routeBudgetRow > .quietButton {
+  justify-self: end;
 }
 
 .contributors {
@@ -1087,6 +1241,15 @@
   .analysisSummaryGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .routeBudgetHead {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .routeBudgetRow {
+    grid-template-columns: minmax(160px, 0.8fr) minmax(240px, 1.4fr) auto;
+  }
 }
 
 @media (max-width: 580px) {
@@ -1109,6 +1272,23 @@
 
   .exportControls {
     justify-content: flex-start;
+  }
+
+  .exportControls > small {
+    text-align: left;
+  }
+
+  .routeBudgetEditor,
+  .routeBudgetRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .routeBudgetRow {
+    gap: 8px;
+  }
+
+  .routeBudgetRow > .quietButton {
+    justify-self: start;
   }
 
   .budgetInput {

@@ -79,6 +79,7 @@ export async function requestAnalysisWithProgress<T>(
           { progressId },
           pollingSignal,
         )
+        if (pollingSignal.aborted) return
         if (result.ok) {
           const progress = analysisProgressOf(result.value)
           if (progress !== undefined) onProgress?.(progress)

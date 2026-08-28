@@ -93,8 +93,12 @@ export function TrajectoryAnalysisAction({
   }
 
   const closeModal = (): void => {
+    catalogController.current?.abort()
+    catalogController.current = undefined
     analysisController.current?.abort()
     analysisController.current = undefined
+    setSelectedModel(undefined)
+    setCatalog({ status: 'idle' })
     setAnalysis(current => current.status === 'loading' ? { status: 'idle' } : current)
     setOpen(false)
   }

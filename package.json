@@ -1,6 +1,6 @@
 {
   "name": "dsh-token-usage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Persistent token usage records and dashboard for DeepSeek Harness",
   "keywords": [

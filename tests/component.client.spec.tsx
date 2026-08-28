@@ -56,6 +56,17 @@ const first = summary({
           cacheWriteTokens: 10,
         },
       }],
+      modelDays: [{
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        date: '1970-01-01',
+        usage: {
+          uncachedInputTokens: 100,
+          outputTokens: 30,
+          cacheReadTokens: 50,
+          cacheWriteTokens: 10,
+        },
+      }],
     },
   },
 })
@@ -91,6 +102,12 @@ const activity = summary({
         usage: { uncachedInputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
       }],
       days: [{
+        date: '2026-08-12',
+        usage: { uncachedInputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      }],
+      modelDays: [{
+        provider: 'deepseek',
+        model: 'deepseek-chat',
         date: '2026-08-12',
         usage: { uncachedInputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
       }],
@@ -207,8 +224,9 @@ function props(
     close: () => {},
     useSessions,
     useWorkspaces: (() => { throw new Error('unused') }) as TokenUsageSectionProps['useWorkspaces'],
-    useBudget: selector => selector({ status: 'ready', budget: 0 }),
+    useBudget: selector => selector({ status: 'ready', budget: 0, routeBudgets: [] }),
     setBudget: async value => value,
+    setRouteBudget: async () => {},
     download: { save: () => {} },
     saveTrajectoryAnalysis: () => {},
     openSession: () => {},
@@ -274,6 +292,7 @@ describe('TokenUsageSection', () => {
       },
     }])
     expect(data.dailyCoverage).toBe('partial')
+    expect(data.modelDailyCoverage).toBe('partial')
     expect(usageAnalysisInput(data)).toMatchObject({
       assistantRequests: 2,
       compactionRequests: 1,
@@ -281,11 +300,61 @@ describe('TokenUsageSection', () => {
     })
   })
 
+  it('keeps model-day coverage complete for count-only zero-token route records', () => {
+    const recorded = first.projectionValues?.tokenUsageRecorder
+    expect(recorded).toBeDefined()
+    const countOnly = summary({
+      ...first,
+      id: 'session-count-only-route' as SessionSummary['id'],
+      projectionValues: {
+        tokenUsageRecorder: {
+          ...recorded!,
+          assistantRequests: recorded!.assistantRequests + 1,
+          models: recorded!.models.concat({
+            provider: 'deepseek',
+            model: 'count-only',
+            assistantRequests: 1,
+            compactionRequests: 0,
+            usage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }),
+        },
+      },
+    })
+
+    expect(aggregateUsage([countOnly]).modelDailyCoverage).toBe('complete')
+  })
+
+  it('downgrades model-day coverage when route-day buckets do not conserve session totals', () => {
+    const recorded = first.projectionValues?.tokenUsageRecorder
+    expect(recorded).toBeDefined()
+    const invalid = summary({
+      ...first,
+      id: 'session-invalid-model-days' as SessionSummary['id'],
+      projectionValues: {
+        tokenUsageRecorder: {
+          ...recorded!,
+          modelDays: [{
+            ...recorded!.modelDays[0]!,
+            usage: { ...recorded!.modelDays[0]!.usage, uncachedInputTokens: 99 },
+          }],
+        },
+      },
+    })
+
+    const partial = aggregateUsage([first, invalid])
+    const unavailable = aggregateUsage([invalid])
+
+    expect(partial.modelDailyCoverage).toBe('partial')
+    expect(unavailable.modelDailyCoverage).toBe('unavailable')
+    expect(partial.modelDays).toHaveLength(1)
+  })
+
   it('does not turn synthetic legacy dates into run-rate or anomaly signals', () => {
     render(<TokenUsageSection {...props([legacy])} />)
 
     expect(screen.getAllByText('旧版回退记录没有真实逐日 bucket，因此不用于运行率、预测或异常信号。')).toHaveLength(2)
     expect(screen.getByText('7 日日均 Token').parentElement?.querySelector('strong')?.textContent).toBe('—')
+    expect(screen.getByRole('button', { name: '日期×模型 CSV' }).hasAttribute('disabled')).toBe(true)
   })
 
   it('suppresses operational and anomaly signals when daily coverage is only partial', () => {
@@ -446,6 +515,49 @@ describe('TokenUsageSection', () => {
     expect(screen.getAllByText('热力图会话').length).toBeGreaterThan(1)
   })
 
+  it('filters reliable UTC trends by exact provider/model route', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
+    const routed = summary({
+      id: 'session-routed' as SessionSummary['id'],
+      displayTitle: '多模型会话',
+      updatedAt: Date.UTC(2026, 7, 12),
+      projectionValues: {
+        tokenUsageRecorder: {
+          assistantRequests: 2,
+          compactionRequests: 0,
+          compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          usage: { uncachedInputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          models: [{
+            provider: 'deepseek', model: 'small', assistantRequests: 1, compactionRequests: 0,
+            usage: { uncachedInputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }, {
+            provider: 'deepseek', model: 'large', assistantRequests: 1, compactionRequests: 0,
+            usage: { uncachedInputTokens: 900, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+          days: [{
+            date: '2026-08-12',
+            usage: { uncachedInputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+          modelDays: [{
+            provider: 'deepseek', model: 'small', date: '2026-08-12',
+            usage: { uncachedInputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }, {
+            provider: 'deepseek', model: 'large', date: '2026-08-12',
+            usage: { uncachedInputTokens: 900, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+        },
+      },
+    })
+    render(<TokenUsageSection {...props([routed])} />)
+
+    const selector = screen.getByLabelText('趋势模型') as HTMLSelectElement
+    expect(selector.disabled).toBe(false)
+    expect(screen.getByText('最近 30 天').parentElement?.querySelector('strong')?.textContent).toBe('1K')
+    fireEvent.change(selector, { target: { value: JSON.stringify(['deepseek', 'small']) } })
+    expect(screen.getByText('最近 30 天').parentElement?.querySelector('strong')?.textContent).toBe('100')
+    expect(screen.getByText('当前趋势仅统计 deepseek/small 的可靠逐日 bucket。')).toBeTruthy()
+  })
+
   it('switches trend periods, persists a budget, and exports aggregate-only data', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
     const setBudget = vi.fn(async (value: number) => value)
@@ -460,9 +572,71 @@ describe('TokenUsageSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'JSON 汇总' }))
     const exported = save.mock.calls[0]?.[2] as string
-    expect(exported).toContain('dsh-token-usage/export-v2')
+    expect(exported).toContain('dsh-token-usage/export-v3')
     expect(exported).not.toContain('热力图会话')
     expect(exported).not.toContain('session-activity')
+  })
+
+  it('evaluates and edits an exact-route budget only from conserved model-day data', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
+    const routeUsage = summary({
+      id: 'session-route-budget' as SessionSummary['id'],
+      displayTitle: '模型预算会话',
+      updatedAt: Date.UTC(2026, 6, 20),
+      projectionValues: {
+        tokenUsageRecorder: {
+          assistantRequests: 1,
+          compactionRequests: 0,
+          compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          usage: { uncachedInputTokens: 80, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          models: [{
+            provider: 'deepseek', model: 'deepseek-chat', assistantRequests: 1, compactionRequests: 0,
+            usage: { uncachedInputTokens: 80, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+          days: [{
+            date: '2026-07-20',
+            usage: { uncachedInputTokens: 80, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+          modelDays: [{
+            provider: 'deepseek', model: 'deepseek-chat', date: '2026-07-20',
+            usage: { uncachedInputTokens: 80, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          }],
+        },
+      },
+    })
+    const setRouteBudget = vi.fn(async () => {})
+    render(<TokenUsageSection
+      {...props([routeUsage])}
+      useBudget={selector => selector({
+        status: 'ready',
+        budget: 0,
+        routeBudgets: [{ provider: 'deepseek', model: 'deepseek-chat', rolling30DayBudget: 100 }],
+      })}
+      setRouteBudget={setRouteBudget}
+    />)
+
+    expect(screen.getByText('已达 80% 预警')).toBeTruthy()
+    expect(screen.getByText('已用 80 / 100 Token（80%）')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('模型路由'), { target: { value: JSON.stringify(['deepseek', 'deepseek-chat']) } })
+    fireEvent.change(screen.getByLabelText('模型 30 日预算（Token）'), { target: { value: '120' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存模型预算' }))
+
+    await waitFor(() => { expect(setRouteBudget).toHaveBeenCalledWith('deepseek', 'deepseek-chat', 120) })
+  })
+
+  it('recovers the settings model catalog after a transient RPC failure', async () => {
+    const listAnalysisModels = vi.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({
+        models: [{ provider: 'healthy', providerName: 'Healthy', model: 'model', modelName: 'Model' }],
+        failures: [],
+      })
+    render(<TokenUsageSection {...props([first])} listAnalysisModels={listAnalysisModels} />)
+
+    expect(await screen.findByText('无法读取已接入模型：offline')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '刷新模型目录' }))
+    expect(await screen.findByLabelText('分析模型')).toBeTruthy()
+    expect(listAnalysisModels).toHaveBeenCalledTimes(2)
   })
 
   it('keeps available models usable while disclosing an unavailable provider catalog', async () => {
@@ -500,7 +674,7 @@ describe('TokenUsageSection', () => {
   it('rolls a rejected budget edit back to the last durable value', async () => {
     render(<TokenUsageSection
       {...props([activity])}
-      useBudget={selector => selector({ status: 'ready', budget: 100 })}
+      useBudget={selector => selector({ status: 'ready', budget: 100, routeBudgets: [] })}
       setBudget={async () => 100}
     />)
     const input = screen.getByLabelText('30 日预算（Token）') as HTMLInputElement
@@ -516,7 +690,7 @@ describe('TokenUsageSection', () => {
     const setBudget = vi.fn(() => new Promise<number>((resolve) => { resolveSave = resolve }))
     render(<TokenUsageSection
       {...props([activity])}
-      useBudget={selector => selector({ status: 'ready', budget: 100 })}
+      useBudget={selector => selector({ status: 'ready', budget: 100, routeBudgets: [] })}
       setBudget={setBudget}
     />)
     const input = screen.getByLabelText('30 日预算（Token）') as HTMLInputElement

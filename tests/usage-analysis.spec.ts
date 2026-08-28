@@ -49,6 +49,47 @@ describe('aggregate Token usage analysis', () => {
     expect(JSON.stringify(evidence)).not.toContain('session')
   })
 
+  it('stably bounds anonymous model evidence and keeps the latest 366 UTC days', () => {
+    const models = Array.from({ length: 60 }, (_, index) => ({
+      provider: `private-provider-${index}`,
+      model: `private-model-${index}`,
+      assistantRequests: 1,
+      compactionRequests: 0,
+      usage: usage(10, 2),
+    }))
+    const days = Array.from({ length: 400 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+      usage: usage(index + 1),
+    })).reverse()
+    const input = {
+      usage: usage(1_000, 200),
+      assistantRequests: 60,
+      compactionRequests: 0,
+      compactionUsage: usage(0),
+      models,
+      days,
+    }
+
+    const evidence = usageAnalysisEvidence(input)
+    const renamed = usageAnalysisEvidence({
+      ...input,
+      models: models.map((model, index) => ({
+        ...model,
+        provider: `renamed-provider-${index}`,
+        model: `renamed-model-${index}`,
+      })),
+    })
+
+    const sortedDays = days.slice().sort((left, right) => left.date.localeCompare(right.date))
+    expect(evidence.models).toHaveLength(48)
+    expect(evidence.models.map(model => model.model)).toEqual(Array.from({ length: 48 }, (_, index) => `route-${index + 1}`))
+    expect(renamed).toEqual(evidence)
+    expect(JSON.stringify(evidence.models)).not.toContain('private-')
+    expect(evidence.days).toHaveLength(366)
+    expect(evidence.days[0]?.date).toBe(sortedDays[34]?.date)
+    expect(evidence.days.at(-1)?.date).toBe(sortedDays.at(-1)?.date)
+  })
+
   it('does not let local price matches fingerprint raw routes in model evidence', () => {
     const input = {
       usage: usage(1_000_000, 1_000_000),
@@ -71,6 +112,52 @@ describe('aggregate Token usage analysis', () => {
     expect(pricedRoute.compactionUsage).toEqual(usage(100))
     expect(pricedRoute).not.toHaveProperty('pricing')
     expect(JSON.stringify(pricedRoute)).not.toContain('gpt-5-mini')
+  })
+
+  it('rejects a stream that ends without a terminal finish reason', async () => {
+    const stream = vi.fn(async function* () {
+      yield { type: 'text-delta' as const, index: 0, text: '# Partial report' }
+    })
+    const ctx = { llm: { prepareCall: async (config: { provider: string; model: string; maxTokens: number }) => ({
+      config,
+      retryPolicy: {},
+      adapterDefaults: {},
+      stream,
+    }) } } as unknown as Context
+
+    await expect(analyzeTokenUsage(ctx, {
+      usage: usage(100, 20),
+      assistantRequests: 1,
+      compactionRequests: 0,
+      compactionUsage: usage(0),
+      models: [],
+      days: [],
+    }, { provider: 'chosen', model: 'finops-model' }, 'en', new AbortController().signal))
+      .rejects.toThrow('without a terminal finish reason')
+  })
+
+  it('rejects model data emitted after the terminal finish reason', async () => {
+    const stream = vi.fn(async function* () {
+      yield { type: 'text-delta' as const, index: 0, text: '# Report' }
+      yield { type: 'finish' as const, reason: { kind: 'stop' as const } }
+      yield { type: 'text-delta' as const, index: 0, text: '\nlate data' }
+    })
+    const ctx = { llm: { prepareCall: async (config: { provider: string; model: string; maxTokens: number }) => ({
+      config,
+      retryPolicy: {},
+      adapterDefaults: {},
+      stream,
+    }) } } as unknown as Context
+
+    await expect(analyzeTokenUsage(ctx, {
+      usage: usage(100, 20),
+      assistantRequests: 1,
+      compactionRequests: 0,
+      compactionUsage: usage(0),
+      models: [],
+      days: [],
+    }, { provider: 'chosen', model: 'finops-model' }, 'en', new AbortController().signal))
+      .rejects.toThrow('after its terminal finish reason')
   })
 
   it('dispatches one selected model call with aggregate-only evidence and returns its Token usage', async () => {

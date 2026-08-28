@@ -638,7 +638,8 @@ function modelEvidence(prepared: PreparedTrajectory): { text: string; truncated:
 }
 
 /** Translate an unsuccessful terminal model finish into one user-visible analysis error. */
-function finishError(finish: FinishReason): Error | undefined {
+function finishError(finish: FinishReason | undefined): Error | undefined {
+  if (finish === undefined) return new Error('Trajectory analysis model stream ended without a terminal finish reason.')
   switch (finish.kind) {
     case 'stop': return undefined
     case 'error':
@@ -697,6 +698,7 @@ export async function analyzeTrajectory(
   }, signal)
   signal.throwIfAborted()
   const assembler = new BlockAssembler()
+  let finishReason: FinishReason | undefined
   progress.generating()
   for await (const chunk of preparedCall.stream({
     ...preparedCall.config,
@@ -705,12 +707,14 @@ export async function analyzeTrajectory(
     signal,
   })) {
     signal.throwIfAborted()
+    if (finishReason !== undefined) throw new Error('Trajectory analysis model emitted data after its terminal finish reason.')
     assembler.push(chunk)
+    if (chunk.type === 'finish') finishReason = chunk.reason
     progress.push(chunk)
   }
   signal.throwIfAborted()
   progress.finalizing(assembler.usage)
-  const terminalError = finishError(assembler.finish)
+  const terminalError = finishError(finishReason)
   if (terminalError !== undefined) throw terminalError
   const blocks = assembler.blocks()
   if (blocks.some(block => block.type === 'tool-call')) throw new Error('Trajectory analysis must return text only.')

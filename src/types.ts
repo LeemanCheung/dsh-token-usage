@@ -22,6 +22,12 @@ export interface DailyTokenUsageRecord {
   usage: TokenUsageBuckets
 }
 
+/** Token usage attributed to one exact provider/model route and UTC date. */
+export interface ModelDailyTokenUsageRecord extends DailyTokenUsageRecord {
+  provider: string
+  model: string
+}
+
 /** Durable per-session usage record served to Host and Web projection consumers. */
 export interface TokenUsageRecorderProjection {
   assistantRequests: number
@@ -31,6 +37,8 @@ export interface TokenUsageRecorderProjection {
   usage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
+  /** Exact route-by-day buckets used for scoped trends and aggregate-only exports. */
+  modelDays: readonly ModelDailyTokenUsageRecord[]
 }
 
 /** Signed bucket delta used to expose accounting mismatches without normalization. */

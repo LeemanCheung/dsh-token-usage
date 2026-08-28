@@ -4,6 +4,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type {
   DailyTokenUsageRecord,
+  ModelDailyTokenUsageRecord,
   ModelTokenUsageRecord,
   PricedModelTokenUsageRecord,
   TokenUsageAnalysis,
@@ -18,9 +19,11 @@ import type {
 import type { TokenUsageBudgetSnapshot } from './budget-controller.ts'
 import { dailyAnomalyInsight, dailyContributors, periodInsight, runRateInsight } from './analytics.ts'
 import { usageEfficiencyInsight } from './efficiency.ts'
+import { routeBudgetInsights, type RouteBudgetInsight } from './route-budget.ts'
 import {
   analysisReportFilename,
   dailyUsageCsv,
+  modelDailyUsageCsv,
   modelUsageCsv,
   tokenUsageAnalysisMarkdown,
   tokenUsageJson,
@@ -38,6 +41,7 @@ interface TokenUsageSectionInjected {
     budget: ObservableSnapshot<TokenUsageBudgetSnapshot>
   }
   setBudget(value: number): Promise<number>
+  setRouteBudget(provider: string, model: string, value: number): Promise<void>
   download: DownloadPort
   saveTrajectoryAnalysis(analysis: TrajectoryAnalysis): void
   openSession(sessionId: SessionId): void
@@ -71,7 +75,9 @@ interface SessionUsageRow {
   usage: TokenUsageBuckets
   models: readonly ModelTokenUsageRecord[]
   days: readonly DailyTokenUsageRecord[]
+  modelDays: readonly ModelDailyTokenUsageRecord[]
   dailyUsageReliable: boolean
+  modelDailyUsageReliable: boolean
 }
 
 interface DashboardData {
@@ -82,8 +88,10 @@ interface DashboardData {
   sessions: SessionUsageRow[]
   models: ModelTokenUsageRecord[]
   days: DailyTokenUsageRecord[]
+  modelDays: ModelDailyTokenUsageRecord[]
   operationalDays: DailyTokenUsageRecord[]
   dailyCoverage: 'complete' | 'partial' | 'unavailable'
+  modelDailyCoverage: 'complete' | 'partial' | 'unavailable'
 }
 
 type InsightRange = 7 | 30 | 90
@@ -126,6 +134,56 @@ function addBuckets(left: TokenUsageBuckets, right: TokenUsageBuckets): TokenUsa
     cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
     cacheWriteTokens: left.cacheWriteTokens + right.cacheWriteTokens,
   }
+}
+
+/** Whether two detached provider bucket sets are exactly conserved. */
+function sameBuckets(left: TokenUsageBuckets, right: TokenUsageBuckets): boolean {
+  return left.uncachedInputTokens === right.uncachedInputTokens
+    && left.outputTokens === right.outputTokens
+    && left.cacheReadTokens === right.cacheReadTokens
+    && left.cacheWriteTokens === right.cacheWriteTokens
+}
+
+/** Sum detached bucket records without retaining projection-owned objects. */
+function summedUsage(records: readonly { usage: TokenUsageBuckets }[]): TokenUsageBuckets {
+  return records.reduce((sum, record) => addBuckets(sum, record.usage), zeroBuckets())
+}
+
+/** Compare two aggregate maps without accepting missing or extra keys. */
+function sameUsageMap(
+  actual: ReadonlyMap<string, TokenUsageBuckets>,
+  expected: ReadonlyMap<string, TokenUsageBuckets>,
+): boolean {
+  return actual.size === expected.size
+    && [...expected].every(([key, usage]) => {
+      const value = actual.get(key)
+      return value !== undefined && sameBuckets(value, usage)
+    })
+}
+
+/** Verify daily buckets conserve the session-level projection total. */
+function dailyUsageConserved(recorded: TokenUsageRecorderProjection): boolean {
+  return sameBuckets(summedUsage(recorded.days), recorded.usage)
+}
+
+/** Verify date-by-model buckets conserve totals across session, route, and UTC day dimensions. */
+function modelDailyUsageConserved(recorded: TokenUsageRecorderProjection): boolean {
+  if (!sameBuckets(summedUsage(recorded.modelDays), recorded.usage)) return false
+  const routeTotals = new Map<string, TokenUsageBuckets>()
+  const dayTotals = new Map<string, TokenUsageBuckets>()
+  for (const record of recorded.modelDays) {
+    if (totalTokens(record.usage) === 0) continue
+    const route = modelKey(record)
+    routeTotals.set(route, addBuckets(routeTotals.get(route) ?? zeroBuckets(), record.usage))
+    dayTotals.set(record.date, addBuckets(dayTotals.get(record.date) ?? zeroBuckets(), record.usage))
+  }
+  const expectedRoutes = new Map(recorded.models
+    .filter(model => totalTokens(model.usage) > 0)
+    .map(model => [modelKey(model), model.usage]))
+  const expectedDays = new Map(recorded.days
+    .filter(day => totalTokens(day.usage) > 0)
+    .map(day => [day.date, day.usage]))
+  return sameUsageMap(routeTotals, expectedRoutes) && sameUsageMap(dayTotals, expectedDays)
 }
 
 /** Stable UTC day key used by durable Host records and legacy fallbacks. */
@@ -199,8 +257,13 @@ function modelKey(model: Pick<ModelTokenUsageRecord, 'provider' | 'model'>): str
   return JSON.stringify([model.provider, model.model])
 }
 
+/** Stable provider/model/date identity for route-day aggregation. */
+function modelDayKey(model: Pick<ModelDailyTokenUsageRecord, 'provider' | 'model' | 'date'>): string {
+  return JSON.stringify([model.provider, model.model, model.date])
+}
+
 /** Compact route label retained in the session table. */
-function routeLabel(model: ModelTokenUsageRecord): string {
+function routeLabel(model: Pick<ModelTokenUsageRecord, 'provider' | 'model'>): string {
   return `${model.provider}/${model.model}`
 }
 
@@ -262,6 +325,10 @@ function sessionRow(summary: SessionSummary): SessionUsageRow | null {
   const assistantRequests = recorded?.assistantRequests ?? 0
   const compactionRequests = recorded?.compactionRequests ?? 0
   if (usage === undefined || (totalTokens(usage) === 0 && assistantRequests === 0 && compactionRequests === 0)) return null
+  const dailyUsageReliable = recorded?.days !== undefined && dailyUsageConserved(recorded)
+  const modelDailyUsageReliable = recorded?.modelDays !== undefined
+    && dailyUsageReliable
+    && modelDailyUsageConserved(recorded)
   return {
     id: summary.id,
     title: summary.displayTitle,
@@ -272,7 +339,9 @@ function sessionRow(summary: SessionSummary): SessionUsageRow | null {
     usage,
     models: recorded?.models ?? [unattributedModel(usage)],
     days: recorded?.days ?? [{ date: dayKey(summary.updatedAt), usage }],
-    dailyUsageReliable: recorded?.days !== undefined,
+    modelDays: recorded?.modelDays ?? [],
+    dailyUsageReliable,
+    modelDailyUsageReliable,
   }
 }
 
@@ -281,12 +350,14 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
   const sessions: SessionUsageRow[] = []
   const models = new Map<string, ModelTokenUsageRecord>()
   const days = new Map<string, TokenUsageBuckets>()
+  const modelDays = new Map<string, ModelDailyTokenUsageRecord>()
   const operationalDays = new Map<string, TokenUsageBuckets>()
   let usage = zeroBuckets()
   let assistantRequests = 0
   let compactionRequests = 0
   let compactionUsage = zeroBuckets()
   let reliableDailySessions = 0
+  let reliableModelDailySessions = 0
 
   for (const summary of summaries) {
     const row = sessionRow(summary)
@@ -297,11 +368,23 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
     compactionRequests += row.compactionRequests
     compactionUsage = addBuckets(compactionUsage, row.compactionUsage)
     if (row.dailyUsageReliable) reliableDailySessions += 1
+    if (row.modelDailyUsageReliable) reliableModelDailySessions += 1
     for (const day of row.days) {
       days.set(day.date, addBuckets(days.get(day.date) ?? zeroBuckets(), day.usage))
       if (row.dailyUsageReliable) {
         operationalDays.set(day.date, addBuckets(operationalDays.get(day.date) ?? zeroBuckets(), day.usage))
       }
+    }
+    for (const modelDay of row.modelDays) {
+      const key = modelDayKey(modelDay)
+      const current = modelDays.get(key)
+      modelDays.set(key, current === undefined ? {
+        ...modelDay,
+        usage: { ...modelDay.usage },
+      } : {
+        ...current,
+        usage: addBuckets(current.usage, modelDay.usage),
+      })
     }
     for (const model of row.models) {
       const key = modelKey(model)
@@ -332,13 +415,27 @@ export function aggregateUsage(summaries: readonly SessionSummary[]): DashboardD
     days: [...days.entries()]
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
+    modelDays: [...modelDays.values()].sort((left, right) =>
+      left.date.localeCompare(right.date)
+      || left.provider.localeCompare(right.provider)
+      || left.model.localeCompare(right.model)),
     operationalDays: [...operationalDays.entries()]
       .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
       .sort((left, right) => left.date.localeCompare(right.date)),
     dailyCoverage: reliableDailySessions === 0
       ? 'unavailable'
       : reliableDailySessions === sessions.length ? 'complete' : 'partial',
+    modelDailyCoverage: reliableModelDailySessions === 0
+      ? 'unavailable'
+      : reliableModelDailySessions === sessions.length ? 'complete' : 'partial',
   }
+}
+
+/** Return one exact route's reliable daily buckets from the aggregate route-day table. */
+function modelTrendDays(modelDays: readonly ModelDailyTokenUsageRecord[], route: string): DailyTokenUsageRecord[] {
+  return modelDays
+    .filter(modelDay => modelKey(modelDay) === route)
+    .map(modelDay => ({ date: modelDay.date, usage: { ...modelDay.usage } }))
 }
 
 /** Return only detached aggregate buckets, route records, and UTC dates for AI usage analysis. */
@@ -530,12 +627,20 @@ function DayDrilldown({
 function PeriodInsights({
   days,
   range,
+  models,
+  selectedModel,
+  modelDailyCoverage,
   onRangeChange,
+  onModelChange,
   t,
 }: {
   days: readonly DailyTokenUsageRecord[]
   range: InsightRange
+  models: readonly ModelTokenUsageRecord[]
+  selectedModel: string
+  modelDailyCoverage: DashboardData['modelDailyCoverage']
   onRangeChange(range: InsightRange): void
+  onModelChange(model: string): void
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const insight = useMemo(() => periodInsight(days, range), [days, range])
@@ -543,6 +648,15 @@ function PeriodInsights({
   const previous = totalTokens(insight.previousUsage)
   const delta = previous === 0 ? undefined : Math.round((current - previous) / previous * 100)
   const peak = insight.peak
+  const selectedRoute = models.find(model => modelKey(model) === selectedModel)
+  let modelCoverageNote: ReactNode = null
+  if (modelDailyCoverage !== 'complete') {
+    modelCoverageNote = <p className={css.insightNote}>{t(modelDailyCoverage === 'partial'
+      ? 'modelDailyCoveragePartial'
+      : 'modelDailyCoverageUnavailable')}</p>
+  } else if (selectedRoute !== undefined) {
+    modelCoverageNote = <p className={css.insightNote}>{t('trendModelScope', { route: routeLabel(selectedRoute) })}</p>
+  }
   return (
     <div className={css.insights}>
       <div className={css.blockHead}>
@@ -550,15 +664,29 @@ function PeriodInsights({
           <h3>{t('trend')}</h3>
           <p>{t('trendIntro')}</p>
         </div>
-        <div className={css.rangeTabs} aria-label={t('trend')}>
-          {([7, 30, 90] as const).map(value => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={range === value}
-              onClick={() => { onRangeChange(value) }}
-            >{t('rangeDays', { count: value })}</button>
-          ))}
+        <div className={css.trendControls}>
+          <label className={css.modelSort}>
+            <span>{t('trendModel')}</span>
+            <select
+              aria-label={t('trendModel')}
+              value={selectedModel}
+              disabled={modelDailyCoverage !== 'complete'}
+              onChange={(event) => { onModelChange(event.currentTarget.value) }}
+            >
+              <option value="">{t('allModels')}</option>
+              {models.map(model => <option key={modelKey(model)} value={modelKey(model)}>{routeLabel(model)}</option>)}
+            </select>
+          </label>
+          <div className={css.rangeTabs} aria-label={t('trend')}>
+            {([7, 30, 90] as const).map(value => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={range === value}
+                onClick={() => { onRangeChange(value) }}
+              >{t('rangeDays', { count: value })}</button>
+            ))}
+          </div>
         </div>
       </div>
       <div className={css.detailMetrics}>
@@ -568,22 +696,31 @@ function PeriodInsights({
         <Metric label={t('peakDay')} value={peak === undefined ? '—' : formatCompactTokens(totalTokens(peak.usage))} />
       </div>
       {peak === undefined ? null : <p className={css.insightNote}>{t('peakDayNote', { date: peak.date, total: formatTokens(totalTokens(peak.usage)) })}</p>}
+      {modelCoverageNote}
     </div>
   )
 }
 
-/** Render the persistent trailing-30-day budget setting and progress. */
+/** Render persistent global and exact-route rolling Token budgets. */
 function BudgetPanel({
   operationalDays,
   dailyCoverage,
+  models,
+  modelDays,
+  modelDailyCoverage,
   snapshot,
   setBudget,
+  setRouteBudget,
   t,
 }: {
   operationalDays: readonly DailyTokenUsageRecord[]
   dailyCoverage: DashboardData['dailyCoverage']
+  models: readonly ModelTokenUsageRecord[]
+  modelDays: readonly ModelDailyTokenUsageRecord[]
+  modelDailyCoverage: DashboardData['modelDailyCoverage']
   snapshot: TokenUsageBudgetSnapshot
   setBudget(value: number): Promise<number>
+  setRouteBudget(provider: string, model: string, value: number): Promise<void>
   t: TokenUsageSectionProps['t']
 }): ReactNode {
   const insight = useMemo(() => periodInsight(operationalDays, 30), [operationalDays])
@@ -594,9 +731,33 @@ function BudgetPanel({
   const enabled = budget > 0
   const durableValue = enabled ? String(budget) : ''
   const [draft, setDraft] = useState(durableValue)
+  const [routeSelection, setRouteSelection] = useState('')
+  const [routeDraft, setRouteDraft] = useState('')
   const editGeneration = useRef(0)
   const dirtyDraft = useRef(false)
   const ratio = enabled ? used / budget : 0
+  const configurableModels = useMemo(
+    () => models.filter(model => !isUnattributed(model) && totalTokens(model.usage) > 0),
+    [models],
+  )
+  const persistedRouteBudgets = snapshot.routeBudgets ?? []
+  const routeInsights = useMemo(
+    () => modelDailyCoverage === 'complete' ? routeBudgetInsights(persistedRouteBudgets, modelDays) : [],
+    [modelDailyCoverage, modelDays, persistedRouteBudgets],
+  )
+  const routeInsightByKey = useMemo(
+    () => new Map<string, RouteBudgetInsight>(routeInsights.map(route => [modelKey(route), route])),
+    [routeInsights],
+  )
+  const routeRows = persistedRouteBudgets
+    .map(route => ({ route, insight: routeInsightByKey.get(modelKey(route)) }))
+    .sort((left, right) => {
+      const insightOrder = routeInsights.findIndex(insight => modelKey(insight) === modelKey(left.route))
+        - routeInsights.findIndex(insight => modelKey(insight) === modelKey(right.route))
+      return modelDailyCoverage === 'complete' && insightOrder !== 0
+        ? insightOrder
+        : left.route.provider.localeCompare(right.route.provider) || left.route.model.localeCompare(right.route.model)
+    })
   useEffect(() => {
     if (!dirtyDraft.current) setDraft(durableValue)
   }, [durableValue, snapshot.status])
@@ -621,6 +782,14 @@ function BudgetPanel({
         setDraft(durableValue)
       },
     )
+  }
+  const saveRoute = (): void => {
+    const selected = configurableModels.find(model => modelKey(model) === routeSelection)
+    const next = Number(routeDraft)
+    if (selected === undefined || !Number.isSafeInteger(next) || next <= 0) return
+    void setRouteBudget(selected.provider, selected.model, next).then(() => {
+      setRouteDraft('')
+    })
   }
   return (
     <div className={css.budget}>
@@ -664,12 +833,97 @@ function BudgetPanel({
               <progress value={Math.min(used, budget)} max={budget} />
               <strong>{t('budgetProgress', { used: formatCompactTokens(used), budget: formatCompactTokens(budget), percent: Math.round(ratio * 100) })}</strong>
             </div>
-            {ratio > 1 ? <p className={css.budgetWarning}>{t('budgetExceeded', { excess: formatCompactTokens(used - budget) })}</p> : null}
-            {runRateAvailable && ratio <= 1 && runRate.projectedThirtyDayTokens > budget ? <p className={css.budgetWarning}>{t('budgetForecastExceeded', {
+            {ratio >= 1 ? <p className={css.budgetWarning}>{t('budgetExceeded', { excess: formatCompactTokens(Math.max(0, used - budget)) })}</p> : null}
+            {runRateAvailable && ratio < 1 && runRate.projectedThirtyDayTokens > budget ? <p className={css.budgetWarning}>{t('budgetForecastExceeded', {
               projected: formatCompactTokens(runRate.projectedThirtyDayTokens),
               budget: formatCompactTokens(budget),
             })}</p> : null}
           </>}
+      <section className={css.routeBudgets} aria-labelledby="token-usage-route-budgets">
+        <div className={css.routeBudgetHead}>
+          <div>
+            <h4 id="token-usage-route-budgets">{t('routeBudgets')}</h4>
+            <p>{t('routeBudgetsIntro')}</p>
+          </div>
+          <div className={css.routeBudgetEditor}>
+            <label>
+              <span>{t('routeBudgetModel')}</span>
+              <select
+                value={routeSelection}
+                disabled={snapshot.status !== 'ready' || configurableModels.length === 0}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  setRouteSelection(value)
+                  const current = persistedRouteBudgets.find(route => modelKey(route) === value)
+                  setRouteDraft(current === undefined ? '' : String(current.rolling30DayBudget))
+                }}
+              >
+                <option value="">{t('routeBudgetChooseModel')}</option>
+                {configurableModels.map(model => <option key={modelKey(model)} value={modelKey(model)}>{routeLabel(model)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>{t('routeBudgetInput')}</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                value={routeDraft}
+                placeholder="0"
+                disabled={snapshot.status !== 'ready'}
+                onChange={(event) => { setRouteDraft(event.currentTarget.value) }}
+                onKeyDown={(event) => { if (event.key === 'Enter') saveRoute() }}
+              />
+            </label>
+            <button
+              className={css.quietButton}
+              type="button"
+              disabled={routeSelection === '' || !Number.isSafeInteger(Number(routeDraft)) || Number(routeDraft) <= 0}
+              onClick={saveRoute}
+            >{t('routeBudgetSave')}</button>
+          </div>
+        </div>
+        {modelDailyCoverage === 'complete' ? null : <p className={css.insightNote}>{t(modelDailyCoverage === 'partial'
+          ? 'routeBudgetCoveragePartial'
+          : 'routeBudgetCoverageUnavailable')}</p>}
+        {persistedRouteBudgets.length === 0 ? <p className={css.insightNote}>{t('routeBudgetsEmpty')}</p> : <div className={css.routeBudgetList} aria-live="polite">
+          {routeRows.map(({ route, insight }) => <article key={modelKey(route)} className={css.routeBudgetRow}>
+            <div className={css.routeBudgetIdentity}>
+              <strong>{routeLabel(route)}</strong>
+              <span
+                className={css.routeBudgetStatus}
+                data-status={insight?.status ?? 'unavailable'}
+              >{insight === undefined ? t('routeBudgetUnavailable') : t(`routeBudgetStatus_${insight.status}`)}</span>
+            </div>
+            {insight === undefined ? <div /> : <div className={css.routeBudgetUsage}>
+              <div className={css.budgetProgress}>
+                <progress
+                  value={Math.min(insight.usedTokens, insight.rolling30DayBudget)}
+                  max={insight.rolling30DayBudget}
+                  aria-label={t('routeBudgetProgress', {
+                    used: formatCompactTokens(insight.usedTokens),
+                    budget: formatCompactTokens(insight.rolling30DayBudget),
+                    percent: Math.round(insight.ratio * 100),
+                  })}
+                />
+                <strong>{t('routeBudgetProgress', {
+                  used: formatCompactTokens(insight.usedTokens),
+                  budget: formatCompactTokens(insight.rolling30DayBudget),
+                  percent: Math.round(insight.ratio * 100),
+                })}</strong>
+              </div>
+              <p className={css.insightNote}>{t('routeBudgetForecast', { projected: formatCompactTokens(insight.projectedThirtyDayTokens) })}</p>
+            </div>}
+            <button
+              className={css.quietButton}
+              type="button"
+              aria-label={t('routeBudgetRemoveFor', { route: routeLabel(route) })}
+              onClick={() => { void setRouteBudget(route.provider, route.model, 0) }}
+            >{t('routeBudgetRemove')}</button>
+          </article>)}
+        </div>}
+      </section>
     </div>
   )
 }
@@ -787,7 +1041,7 @@ function ExportControls({
   download: DownloadPort
   t: TokenUsageSectionProps['t']
 }): ReactNode {
-  const save = (kind: 'json' | 'daily' | 'models'): void => {
+  const save = (kind: 'json' | 'daily' | 'models' | 'modelDaily'): void => {
     const generatedAt = new Date().toISOString()
     const date = generatedAt.slice(0, 10)
     switch (kind) {
@@ -799,6 +1053,9 @@ function ExportControls({
         return
       case 'models':
         download.save(`dsh-token-usage-models-${date}.csv`, 'text/csv;charset=utf-8', modelUsageCsv(data))
+        return
+      case 'modelDaily':
+        download.save(`dsh-token-usage-model-daily-${date}.csv`, 'text/csv;charset=utf-8', modelDailyUsageCsv(data))
     }
   }
   return (
@@ -807,6 +1064,13 @@ function ExportControls({
       <button type="button" onClick={() => { save('json') }}>{t('exportJson')}</button>
       <button type="button" onClick={() => { save('daily') }}>{t('exportDaily')}</button>
       <button type="button" onClick={() => { save('models') }}>{t('exportModels')}</button>
+      <button
+        type="button"
+        disabled={data.modelDailyCoverage !== 'complete'}
+        title={data.modelDailyCoverage === 'complete' ? undefined : t('exportModelDailyUnavailable')}
+        onClick={() => { save('modelDaily') }}
+      >{t('exportModelDaily')}</button>
+      {data.modelDailyCoverage === 'complete' ? null : <small>{t('exportModelDailyUnavailable')}</small>}
     </div>
   )
 }
@@ -893,7 +1157,11 @@ function UsageAnalysisPanel({
     return <div className={css.analysisEmpty}><h3>{t('usageAnalysis')}</h3><p>{t('analysisModelsLoading')}</p></div>
   }
   if (catalog.status === 'error') {
-    return <div className={css.analysisError}><h3>{t('usageAnalysis')}</h3><p>{t('analysisModelsFailed', { message: catalog.message })}</p></div>
+    return <div className={css.analysisError}>
+      <h3>{t('usageAnalysis')}</h3>
+      <p>{t('analysisModelsFailed', { message: catalog.message })}</p>
+      <button className={css.quietButton} type="button" onClick={onRefreshCatalog}>{t('refreshAnalysisModels')}</button>
+    </div>
   }
   const catalogFailures = catalog.value.failures ?? []
   if (catalog.value.models.length === 0 || selectedModel === undefined) {
@@ -1093,6 +1361,7 @@ export function TokenUsageSection({
   useSessions,
   useBudget,
   setBudget,
+  setRouteBudget,
   download,
   saveTrajectoryAnalysis,
   openSession,
@@ -1109,6 +1378,7 @@ export function TokenUsageSection({
   const [modelSort, setModelSort] = useState<ModelSort>('total')
   const [sessionLimit, setSessionLimit] = useState(SESSION_PAGE_SIZE)
   const [range, setRange] = useState<InsightRange>(30)
+  const [trendModel, setTrendModel] = useState('')
   const [selectedDate, setSelectedDate] = useState<string>()
   const [operationalDrilldown, setOperationalDrilldown] = useState(false)
   const [sessionOpenError, setSessionOpenError] = useState<string>()
@@ -1186,6 +1456,18 @@ export function TokenUsageSection({
   const data = useMemo(
     () => aggregateUsage(ids.map(id => byId[id]).filter((value): value is SessionSummary => value !== undefined)),
     [byId, ids],
+  )
+  const trendModels = useMemo(
+    () => data.models.filter(model => !isUnattributed(model) && totalTokens(model.usage) > 0),
+    [data.models],
+  )
+  const selectedTrendModel = data.modelDailyCoverage === 'complete'
+    && trendModels.some(model => modelKey(model) === trendModel)
+    ? trendModel
+    : ''
+  const trendDays = useMemo(
+    () => selectedTrendModel === '' ? data.days : modelTrendDays(data.modelDays, selectedTrendModel),
+    [data.days, data.modelDays, selectedTrendModel],
   )
   const runUsageAnalysis = (): void => {
     if (selectedAnalysisModel === undefined) return
@@ -1273,7 +1555,16 @@ export function TokenUsageSection({
             setSelectedDate(undefined)
             setOperationalDrilldown(false)
           }} />}
-          <PeriodInsights days={data.days} range={range} onRangeChange={setRange} t={t} />
+          <PeriodInsights
+            days={trendDays}
+            range={range}
+            models={trendModels}
+            selectedModel={selectedTrendModel}
+            modelDailyCoverage={data.modelDailyCoverage}
+            onRangeChange={setRange}
+            onModelChange={setTrendModel}
+            t={t}
+          />
           <EfficiencyPanel
             usage={data.usage}
             compactionUsage={data.compactionUsage}
@@ -1286,7 +1577,17 @@ export function TokenUsageSection({
             setOperationalDrilldown(true)
             setSelectedDate(date)
           }} t={t} />
-          <BudgetPanel operationalDays={data.operationalDays} dailyCoverage={data.dailyCoverage} snapshot={budget} setBudget={setBudget} t={t} />
+          <BudgetPanel
+            operationalDays={data.operationalDays}
+            dailyCoverage={data.dailyCoverage}
+            models={data.models}
+            modelDays={data.modelDays}
+            modelDailyCoverage={data.modelDailyCoverage}
+            snapshot={budget}
+            setBudget={setBudget}
+            setRouteBudget={setRouteBudget}
+            t={t}
+          />
           <div className={css.pricingNotice}>
             <strong>{t('pricingTitle')}</strong>
             <p>{t('pricingIntro', {

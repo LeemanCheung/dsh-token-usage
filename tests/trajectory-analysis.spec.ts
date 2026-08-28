@@ -366,6 +366,50 @@ describe('trajectory analysis', () => {
     })
   })
 
+  it('rejects a trajectory stream that ends without a terminal finish reason', async () => {
+    const stream = vi.fn(async function* () {
+      yield { type: 'text-delta' as const, index: 0, text: '# Partial report' }
+    })
+    const ctx = { llm: { prepareCall: async (config: { provider: string; model: string; maxTokens: number }) => ({
+      config,
+      retryPolicy: {},
+      adapterDefaults: {},
+      stream,
+    }) } } as unknown as Context
+
+    await expect(analyzeTrajectory(
+      ctx,
+      SessionId('private-session-id'),
+      events,
+      { provider: 'configured', model: 'audit-model' },
+      'en',
+      new AbortController().signal,
+    )).rejects.toThrow('without a terminal finish reason')
+  })
+
+  it('rejects trajectory data emitted after the terminal finish reason', async () => {
+    const stream = vi.fn(async function* () {
+      yield { type: 'text-delta' as const, index: 0, text: '# Report' }
+      yield { type: 'finish' as const, reason: { kind: 'stop' as const } }
+      yield { type: 'text-delta' as const, index: 0, text: '\nlate data' }
+    })
+    const ctx = { llm: { prepareCall: async (config: { provider: string; model: string; maxTokens: number }) => ({
+      config,
+      retryPolicy: {},
+      adapterDefaults: {},
+      stream,
+    }) } } as unknown as Context
+
+    await expect(analyzeTrajectory(
+      ctx,
+      SessionId('private-session-id'),
+      events,
+      { provider: 'configured', model: 'audit-model' },
+      'en',
+      new AbortController().signal,
+    )).rejects.toThrow('after its terminal finish reason')
+  })
+
   it('uses the configured model with metadata-only evidence and returns its usage', async () => {
     const stream = vi.fn(async function* () {
       yield { type: 'text-delta' as const, index: 0, text: '# Resource summary\nEvidence: seq 0-10.' }
