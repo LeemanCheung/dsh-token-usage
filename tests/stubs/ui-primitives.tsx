@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactElement, ReactNode } from 'react'
 
 export function MarkdownText({ text }: { text: string }): ReactNode {
   return <div>{text}</div>
@@ -6,6 +6,14 @@ export function MarkdownText({ text }: { text: string }): ReactNode {
 
 export function Button({ variant: _variant, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string }): ReactNode {
   return <button {...props} />
+}
+
+export function Tooltip({ children }: { children: ReactElement }): ReactNode {
+  return children
+}
+
+export function IconDataOutline16({ size = 16, className }: { size?: number; className?: string }): ReactNode {
+  return <svg aria-hidden width={size} height={size} className={className} />
 }
 
 export function Modal({ open, title, children, footer, className, contentClassName }: {

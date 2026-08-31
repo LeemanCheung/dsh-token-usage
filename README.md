@@ -4,6 +4,7 @@
   <a href="https://awesome.re"><img src="https://awesome.re/badge.svg" alt="Awesome"></a>
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek_Harness-plugin-2f6cff.svg" alt="DeepSeek Harness plugin"></a>
+  <img src="https://img.shields.io/badge/version-0.3.0-2f6cff.svg" alt="Version 0.3.0">
   <img src="https://img.shields.io/badge/data-local--first-6f42c1.svg" alt="Local-first data">
   <img src="https://img.shields.io/badge/AI_analysis-opt--in-f59e0b.svg" alt="Opt-in AI analysis">
   <img src="https://img.shields.io/badge/privacy-allowlist-0f9d8a.svg" alt="Allowlist privacy">
@@ -38,6 +39,7 @@
 | **精确记账** | 分别记录未缓存输入、输出、缓存读取与缓存写入；`reasoningTokens` 已包含在输出中，不重复计算。流式 usage 先作为临时值，最终消息在同一 attempt 内覆盖它；重试与上下文压缩独立计数。 |
 | **多维聚合** | 以 provider / model、会话、UTC 日期和日期×模型聚合普通对话、每次重试和上下文压缩；旧用量无法归因时单独披露，不破坏总量守恒。 |
 | **概览与活跃度** | 八项概览指标覆盖总量、输入、输出、缓存结构、公开费用、缓存读取避免费用、费率覆盖和有用量会话；30 周热力图支持四类 bucket 悬停与按日会话下钻。 |
+| **近实时确认输出** | Web 端每 5 秒统一采样 provider 已确认的会话输出 bucket，以最多 10 秒窗口平滑突发入账；对话标题区显示当前会话 `tok/s`，侧栏底部显示全部会话合计和近期有入账的会话数。仅在请求终态上报 usage 的路由会在请求结束后形成脉冲，不代表逐 Token 解码速度。 |
 | **趋势与数据质量** | 支持全部路由或单个 provider/model 的 7/30/90 日环比、活跃天数和峰值日；日期×模型 bucket 必须同时与会话总量、模型总量和逐日总量守恒，覆盖不完整或不一致时自动降级，避免旧数据造成低估。 |
 | **预算与异常** | 本机持久化全局及精确 provider/model 的滚动 30 日 Token 预算；模型预算提供 80% 预警、100% 超额和 7 个完整 UTC 日运行率预测，并只在日期×模型覆盖完整且守恒时启用。全局异常仍以中位数/MAD 识别近期突增并支持按日下钻。 |
 | **Agent 效率** | 展示模型尝试数、每次尝试 Token、每百次尝试压缩数、精确压缩 Token 占比、缓存读取占输入、Top 1/Top 3 路由集中度和未归因比例。 |
@@ -124,6 +126,7 @@ dsh plugin --profile web remove dsh-token-usage
 ## 📊 仪表盘内容
 
 - **概览卡片**：总 Token、输入 Token、输出 Token、缓存读取占输入、有用量会话数，以及已覆盖路由的公开 USD 估算、缓存读取避免费用和 Token 费率覆盖率。
+- **近实时确认输出**：同一浏览器控制器每 5 秒读取已推送的会话 projection，以最多 10 秒 `outputTokens` 增量计算速率；对话标题区显示当前会话，侧栏底部显示全部会话合计与近期入账数量。首次挂载先建立基线；projection 回退、来源切换、暂时缺失后重现或时钟异常时都会为该会话建立新 epoch，不跨口径显示假速率。当前 strict session 的 projection 会补充进共享控制器，因此只存在于 addressed 子会话视图、未带 projection 的合成列表行也能计量。该指标只计算 provider 已确认用量；如果路由仅在请求结束时给出 usage，它显示的是完成后的入账速率，不是生成过程中的逐 Token 解码速度。
 - **Token 活跃度与下钻**：最近 30 周按 UTC 日汇总的热力图；悬停方格查看四类 bucket，点击查看当天总量和贡献会话。旧版内置 projection 缺少逐日数据时，仍会以会话最后活动日保留历史总量，但该日期会从运行率/异常口径排除。
 - **周期趋势**：切换 7/30/90 日窗口，查看当前周期总量、环比、活跃天数与峰值日；日期×模型 bucket 完整时可按精确 provider/model 筛选，覆盖不完整时选择器会停用并说明原因。
 - **用量信号**：仅在全部纳入统计的会话都有真实逐日 bucket 时，按最近 7 个完整 UTC 日计算日均和预计 30 日运行率；昨天的完整日会与此前 28 日至少 5 个活跃日的中位数/MAD 稳健基线比较，异常日可直接下钻会话。覆盖不完整时会明确显示不可用，而不是低估。
@@ -143,6 +146,7 @@ dsh plugin --profile web remove dsh-token-usage
 | 总 Token | 输入 Token + `outputTokens` |
 | 缓存读取占输入 | `cacheReadTokens / 输入 Token`；这是 Token 结构比例，不是请求级缓存命中率 |
 | 输出 Token | 使用 provider 上报的 `outputTokens`；不另加 `reasoningTokens` |
+| 近实时确认输出 | 最近最多 10 秒 `outputTokens` 增量 ÷ 实际采样间隔；每 5 秒刷新，按会话、计量来源和连续 epoch 计算后求和。只代表已确认输出入账，不把终态脉冲表述为逐 Token 解码速度 |
 | 压缩 Token | 所有 `compaction/summary` provider usage 的四个 bucket 之和；与普通模型尝试分别计数 |
 | 每次模型尝试 Token | `(总 Token - 压缩 Token) / assistantRequests`；重试是独立尝试。若存在未归因旧用量，因缺少对应尝试次数而不显示该比率。 |
 
@@ -241,6 +245,8 @@ flowchart LR
   A[DSH session log] --> B[Token usage projection]
   B --> C[Session projection cache]
   C --> D[Settings · Token 用量]
+  C --> N[Web 端 5 秒采样 / 最多 10 秒窗口]
+  N --> O[当前会话与全部会话 tok/s]
   D --> E[概览、趋势、预算与导出]
   D --> F[30 周热力图与会话下钻]
   D -->|显式触发| G[确定性用量节点与对账]
@@ -256,6 +262,7 @@ flowchart LR
 - Host 侧监听普通模型请求、重试和上下文压缩事件，构建会话级持久 projection。
 - 历史会话在后台按顺序预热；冷会话在恢复期间重新附着时，会重新写入最新 live checkpoint，避免回退缓存水位。
 - Web 侧将所有会话 projection 聚合为仪表盘数据。较旧的内置 projection 会显示为“未归因用量”，以保持总量守恒。
+- 同一个 Web 控制器读取 projection feed 并发布共享确认输出快照；标题区和侧栏不会分别启动定时器或产生不同采样窗口。该指标只使用 provider 已确认的输出 bucket，不估算正文 Token，也不把仅在请求终态到达的 usage 说成逐 Token 实时解码速度。
 - 两类 AI 分析都走 loopback 私有 RPC，并只接受用户从已接入模型目录中选择的路由：用量分析只传聚合 DTO；轨迹分析由 Host 读取权威事件日志、构造内容无关的实际用量节点和有界白名单 DTO。Web 通过短轮询读取请求级进度，只接收标量进度、JSON 指标和 Markdown 报告；分析结束后 Host 立即移除进度记录。
 
 ## 🔎 设计参考与取舍

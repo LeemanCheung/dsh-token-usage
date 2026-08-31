@@ -1,6 +1,6 @@
 {
   "name": "dsh-token-usage",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Persistent token usage records and dashboard for DeepSeek Harness",
   "keywords": [
@@ -49,7 +49,8 @@
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-sidebar"
       ],
       "platform": "web"
     }
@@ -58,7 +59,8 @@
     "build": "tsdown --config tsdown.config.ts",
     "typecheck:host": "tsc -p tsconfig.host.json --noEmit",
     "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
-    "typecheck": "npm run typecheck:host && npm run typecheck:client",
+    "typecheck:config": "tsc --noEmit --strict --module nodenext --moduleResolution nodenext --target es2024 --skipLibCheck --allowImportingTsExtensions --types node tsdown.config.ts tests/build-config.spec.ts",
+    "typecheck": "npm run typecheck:host && npm run typecheck:client && npm run typecheck:config",
     "test": "vitest run"
   },
   "peerDependencies": {
@@ -70,6 +72,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-sidebar": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-compaction": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",

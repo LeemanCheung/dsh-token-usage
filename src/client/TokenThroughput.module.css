@@ -1,0 +1,146 @@
+/* Quiet operational indicators for the conversation header and sidebar foot. */
+
+.headerMetric,
+.sidebarMetric {
+  display: inline-flex;
+  align-items: center;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.headerMetric {
+  gap: 5px;
+  min-height: 24px;
+  margin-left: 2px;
+  padding-left: 11px;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.headerMetric strong,
+.sidebarMetric strong {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.headerLabel {
+  color: var(--dsw-alias-label-caption);
+}
+
+.unit {
+  color: var(--dsw-alias-label-caption);
+  font-size: 10px;
+}
+
+.signal {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border: 1px solid var(--dsw-alias-label-caption);
+  border-radius: 50%;
+  background: var(--dsw-alias-bg-base);
+}
+
+[data-active] > .signal,
+[data-active] .sidebarIcon .signal {
+  border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.sidebarMetric {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  gap: 5px;
+  padding: 6px 8px 6px 7px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.sidebarIcon {
+  position: relative;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sidebarIcon .signal {
+  position: absolute;
+  right: -1px;
+  bottom: 0;
+  width: 6px;
+  height: 6px;
+  border-color: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-label-caption);
+  box-shadow: 0 0 0 1px var(--dsw-alias-bg-layer-2);
+}
+
+.sidebarLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeCount {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--dsw-alias-label-caption);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebarMetric.rail {
+  width: 36px;
+  min-height: 36px;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.sidebarMetric.rail:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+/*
+ * DSH's footer-action owner describes this seat as a stack, but rc.6 renders
+ * list contributions in one flex row. A full-width sibling (notably
+ * dsh-web-restart) can therefore squeeze this metric to a few pixels. Keep the
+ * compatibility rule scoped to a footer that actually contains this plugin;
+ * the stable data attributes avoid depending on generated CSS-module names.
+ */
+:global(div:has(> [data-slot="sidebar.footer.action"] > [data-token-throughput="all"])) {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rail .sidebarIcon .signal {
+  border-color: var(--dsw-alias-bg-base);
+  box-shadow: 0 0 0 1px var(--dsw-alias-bg-base);
+}
+
+@media (max-width: 1100px) {
+  .headerLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}

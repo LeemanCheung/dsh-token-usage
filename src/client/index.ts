@@ -4,6 +4,7 @@ import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/c
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
   TokenUsageAnalysisInput,
@@ -12,8 +13,10 @@ import type {
   TrajectoryAnalysis,
 } from '../types.ts'
 import { TokenUsageSection } from './TokenUsageSection.tsx'
+import { AllSessionsThroughput, CurrentSessionThroughput } from './TokenThroughput.tsx'
 import { TrajectoryAnalysisAction } from './TrajectoryAnalysisAction.tsx'
 import { TokenUsageBudgetController } from './budget-controller.ts'
+import { TokenThroughputController } from './throughput-controller.ts'
 import { browserDownload } from './export.ts'
 import { requestTrajectoryAnalysis } from './trajectory-analysis-client.ts'
 import { TrajectoryHistoryController } from './trajectory-history.ts'
@@ -36,13 +39,33 @@ export function apply(ctx: ClientContext): void {
   if (connection === undefined) throw new Error('dsh-token-usage requires the Client connection service')
   const budget = new TokenUsageBudgetController(connection)
   const trajectoryHistory = new TrajectoryHistoryController()
+  const throughput = new TokenThroughputController(ctx.sessions.list)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'token-usage: dictionaries')
+  ctx.effect(() => throughput.start(), 'token usage: sample confirmed output rate')
   ctx.effect(() => {
     trajectoryHistory.load()
     void budget.load()
     return () => { budget.dispose() }
   }, 'token usage: load persistent budget')
   const t = ctx.locale.bind(NS)
+  const throughputFace = () => ({
+    hooks: { throughput },
+    observeProjection: throughput.setScopedCounter,
+  })
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'token-usage-throughput-all',
+    order: 100,
+    locale: NS,
+    inject: throughputFace,
+  }, AllSessionsThroughput))
+  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions',
+    id: 'token-usage-throughput-current',
+    order: 50,
+    locale: NS,
+    inject: throughputFace,
+  }, CurrentSessionThroughput))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'token-usage',
