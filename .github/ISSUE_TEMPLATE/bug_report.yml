@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a reproducible problem in dsh-token-usage.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem.
+
+        If you suspect a security or data-exposure issue, do not include exploit details here. Follow the [security policy](https://github.com/LeemanCheung/dsh-token-usage/security/policy) for private reporting.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version or commit
+      description: Provide the package version or commit being used.
+      placeholder: "0.3.0 or 4943e02"
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DeepSeek Harness version
+      description: Include the DSH version or dependency line if known.
+      placeholder: "0.1.0-rc.6"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: profile
+    attributes:
+      label: DSH profile
+      options:
+        - Web profile
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include operating system, Node.js version, and browser version where relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest safe set of steps that reproduces the problem.
+      placeholder: |
+        1. Install ...
+        2. Open ...
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Safe diagnostics
+      description: Add relevant errors or screenshots after removing credentials, tokens, prompts, responses, session contents, private URLs, and other sensitive data.
+
+  - type: checkboxes
+    id: safe-to-share
+    attributes:
+      label: Safe to share
+      options:
+        - label: I removed credentials, access tokens, prompts, responses, private session data, and other sensitive information.
+          required: true
