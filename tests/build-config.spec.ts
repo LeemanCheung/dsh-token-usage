@@ -3,7 +3,7 @@ import { dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { transform } from 'lightningcss'
 import { describe, expect, it, vi } from 'vitest'
-import buildConfig from '../tsdown.config.ts'
+import buildConfig, { canonicalCssLocation } from '../tsdown.config.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const cssPath = resolvePath(root, 'src/client/TokenThroughput.module.css')
@@ -21,6 +21,16 @@ function cssClassMap(projectRoot: string, packageId: string): Record<string, str
 }
 
 describe('deterministic client build config', () => {
+  it('uses a fixed POSIX namespace for cross-platform CSS module hashes', () => {
+    expect(canonicalCssLocation('src/client/TokenUsageSection.module.css')).toEqual({
+      filename: '/dsh-plugin-build/dsh-token-usage/src/client/TokenUsageSection.module.css',
+      projectRoot: '/dsh-plugin-build',
+    })
+    expect(canonicalCssLocation('src/client/TokenThroughput.module.css').filename).not.toContain('\\')
+    expect(() => canonicalCssLocation('../outside.module.css')).toThrow(/invalid package-relative CSS path/)
+    expect(() => canonicalCssLocation('src\\client\\outside.module.css')).toThrow(/invalid package-relative CSS path/)
+  })
+
   it('keeps CSS module names stable across checkout roots and scoped by package', () => {
     const rootA = resolvePath(dirname(root), 'checkout-a')
     const rootB = resolvePath(dirname(root), 'checkout-b')
@@ -67,6 +77,11 @@ describe('deterministic client build config', () => {
     expect(lastLine?.startsWith('export default ')).toBe(true)
     const classMap = JSON.parse(lastLine!.slice('export default '.length, -1)) as Record<string, string>
     expect(Object.keys(classMap)).toEqual([...Object.keys(classMap)].sort())
+    expect(classMap).toMatchObject({
+      activeCount: '_16eOsq_activeCount',
+      headerMetric: '_16eOsq_headerMetric',
+      sidebarMetric: '_16eOsq_sidebarMetric',
+    })
     expect(String(moduleSource)).toContain('tag.dataset.plugin = "dsh-token-usage"')
     expect(String(moduleSource)).toContain('dsh-token-usage/TokenThroughput.module.css')
   })

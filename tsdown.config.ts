@@ -7,6 +7,7 @@ import { clientBundle } from '../deepseek-harness/packages/client/tsdown.client.
 
 const PLUGIN_ID = 'dsh-token-usage'
 const PACKAGE_ROOT = fileURLToPath(new URL('.', import.meta.url))
+const CANONICAL_CSS_PROJECT_ROOT = '/dsh-plugin-build'
 const baseConfig = clientBundle(PLUGIN_ID, ['src/index.ts'])
 
 interface BuildHookContext {
@@ -43,19 +44,47 @@ function packageRelativePath(fileId: string): string {
   return relativePath.split(sep).join('/')
 }
 
+/**
+ * Return the OS-independent virtual paths used as Lightning CSS hash input.
+ *
+ * Lightning CSS hashes the project-relative filename for CSS Modules. Feeding
+ * it checkout-native Windows and POSIX paths produces different class names,
+ * even when the source tree is otherwise identical. A fixed POSIX namespace
+ * keeps committed browser bundles reproducible across maintainer machines and
+ * the Linux CI runner.
+ */
+export function canonicalCssLocation(packagePath: string): {
+  filename: string
+  projectRoot: string
+} {
+  if (
+    packagePath === ''
+    || packagePath === '..'
+    || packagePath.startsWith('../')
+    || packagePath.includes('\\')
+    || posix.isAbsolute(packagePath)
+  ) {
+    throw new Error(`dsh-token-usage build: invalid package-relative CSS path: ${packagePath}`)
+  }
+  return {
+    filename: posix.join(CANONICAL_CSS_PROJECT_ROOT, PLUGIN_ID, packagePath),
+    projectRoot: CANONICAL_CSS_PROJECT_ROOT,
+  }
+}
+
 /** Build the shared preset's virtual module with path-stable, sorted exports. */
 async function deterministicCssModule(this: BuildHookContext, fileId: string): Promise<string> {
   const packagePath = packageRelativePath(fileId)
 
   this.addWatchFile(fileId)
-  const source = await readFile(fileId)
-  const logicalRoot = dirname(PACKAGE_ROOT)
-  const logicalFilename = resolvePath(logicalRoot, PLUGIN_ID, ...packagePath.split('/'))
+  const source = Buffer.from((await readFile(fileId, 'utf8')).replace(/\r\n?/g, '\n'))
+  const logicalLocation = canonicalCssLocation(packagePath)
   const { code, exports: cssExports } = transform({
     // Include the package id in the project-relative hash input so unrelated
-    // plugins with the same internal path/local name cannot collide.
-    filename: logicalFilename,
-    projectRoot: logicalRoot,
+    // plugins with the same internal path/local name cannot collide. Keep both
+    // inputs POSIX-only so Windows and Linux emit the same CSS module names.
+    filename: logicalLocation.filename,
+    projectRoot: logicalLocation.projectRoot,
     code: source,
     cssModules: { pattern: '[hash]_[local]' },
     minify: true,
