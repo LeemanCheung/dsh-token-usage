@@ -8,6 +8,7 @@ import { clientBundle } from '../deepseek-harness/packages/client/tsdown.client.
 const PLUGIN_ID = 'dsh-token-usage'
 const PACKAGE_ROOT = fileURLToPath(new URL('.', import.meta.url))
 const CANONICAL_CSS_PROJECT_ROOT = '/dsh-plugin-build'
+export const CSS_MODULE_PATTERN = `${PLUGIN_ID}_[local]`
 const baseConfig = clientBundle(PLUGIN_ID, ['src/index.ts'])
 
 interface BuildHookContext {
@@ -47,11 +48,10 @@ function packageRelativePath(fileId: string): string {
 /**
  * Return the OS-independent virtual paths used as Lightning CSS hash input.
  *
- * Lightning CSS hashes the project-relative filename for CSS Modules. Feeding
- * it checkout-native Windows and POSIX paths produces different class names,
- * even when the source tree is otherwise identical. A fixed POSIX namespace
- * keeps committed browser bundles reproducible across maintainer machines and
- * the Linux CI runner.
+ * A fixed POSIX namespace keeps path-aware CSS transforms independent of the
+ * maintainer checkout. CSS Module names deliberately use a literal plugin
+ * namespace instead of Lightning CSS's path-based `[hash]`, whose path
+ * semantics still differ between Windows and Linux.
  */
 export function canonicalCssLocation(packagePath: string): {
   filename: string
@@ -80,13 +80,12 @@ async function deterministicCssModule(this: BuildHookContext, fileId: string): P
   const source = Buffer.from((await readFile(fileId, 'utf8')).replace(/\r\n?/g, '\n'))
   const logicalLocation = canonicalCssLocation(packagePath)
   const { code, exports: cssExports } = transform({
-    // Include the package id in the project-relative hash input so unrelated
-    // plugins with the same internal path/local name cannot collide. Keep both
-    // inputs POSIX-only so Windows and Linux emit the same CSS module names.
+    // The plugin id provides collision isolation without relying on the host's
+    // interpretation of path separators inside Lightning CSS's `[hash]`.
     filename: logicalLocation.filename,
     projectRoot: logicalLocation.projectRoot,
     code: source,
-    cssModules: { pattern: '[hash]_[local]' },
+    cssModules: { pattern: CSS_MODULE_PATTERN },
     minify: true,
   })
   const classMap = Object.fromEntries(
