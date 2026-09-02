@@ -4,6 +4,15 @@ This changelog records verifiable changes represented in the repository history.
 
 ## [Unreleased]
 
+No entries yet.
+
+## [0.3.1] - 2026-09-02
+
+### Added
+
+- Added a security policy, contribution guide, structured issue forms, and a pull request checklist (`bb233a2`).
+- Added fact-based release notes and README navigation for the new maintenance resources.
+
 ### Fixed
 
 - Stabilized committed CSS bundles across Windows and Linux by replacing platform-sensitive path hashes with a plugin-scoped namespace (`4943e02`).
