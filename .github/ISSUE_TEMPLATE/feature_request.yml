@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest an improvement to dsh-token-usage.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement.
+
+        Describe the user problem and desired outcome. Keep examples free of credentials, prompts, responses, and private session data.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What workflow or decision is currently difficult?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or interface you would like.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or alternative approaches have you tried?
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and privacy considerations
+      description: Explain any expected impact on DSH Web compatibility, local storage, loopback RPC, or opt-in AI boundaries.
+
+  - type: checkboxes
+    id: safe-to-share
+    attributes:
+      label: Safe to share
+      options:
+        - label: I removed credentials, access tokens, prompts, responses, private session data, and other sensitive information.
+          required: true

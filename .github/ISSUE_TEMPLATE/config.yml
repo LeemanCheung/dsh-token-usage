@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/LeemanCheung/dsh-token-usage/security/advisories/new
+    about: Report vulnerabilities or suspected data-boundary violations privately.

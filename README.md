@@ -22,7 +22,9 @@
   <a href="#安装">安装</a> ·
   <a href="#ai-token-用量分析">AI 用量分析</a> ·
   <a href="#会话-token-轨迹分析">轨迹分析</a> ·
-  <a href="#已知限制">已知限制</a>
+  <a href="#已知限制">已知限制</a> ·
+  <a href="#贡献与社区">贡献与社区</a> ·
+  <a href="SECURITY.md">安全</a>
 </p>
 
 <p align="center">
@@ -327,6 +329,15 @@ npm run build
 - 分析调用的 Token 在生成进度和完成报告中显示，不计入持久化仪表盘。provider usage 到达前的输出 Token 是基于字符的近似值，不可用于账单。
 - DSH 当前的 provider 模型目录 Interface 不接受 `AbortSignal`。挂起调用会在刷新间复用，30 秒冷却后允许一次并行恢复尝试；每个 provider 最多保留两个未决底层调用。若两次都永久挂起，该 provider 仍需等待其中一次结算或 LLM runtime 重建。
 - AI 用量分析只可选择当前能由已接入 provider 列出的模型；每日趋势证据最多传递最新 366 天。内置 USD 费率表不是实时账单或汇率服务，仅按文档列出的 OpenAI 路由标签本地匹配；模型建议不接收价格证据，也不替代账单、延迟或质量观测。
+
+<a id="贡献与社区"></a>
+## 🤝 贡献与社区
+
+- [贡献指南](CONTRIBUTING.md)：本地开发、测试、构建和 Pull Request 检查。
+- [安全政策](SECURITY.md)：私密报告疑似安全问题或数据边界问题。
+- [变更日志](CHANGELOG.md)：当前仓库历史中的可验证变更。
+- [提交 Bug](https://github.com/LeemanCheung/dsh-token-usage/issues/new?template=bug_report.yml)
+- [提出功能建议](https://github.com/LeemanCheung/dsh-token-usage/issues/new?template=feature_request.yml)
 
 ## 📄 License
 
