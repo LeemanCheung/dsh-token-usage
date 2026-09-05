@@ -22,7 +22,7 @@ describe('DSH 0.1.2 package contract', () => {
       '@deepseek-ai/dsh-client-connection',
       '@deepseek-ai/dsh-client-ui-renderer',
     ]))
-    expect(manifest.dsh?.compatibility?.dshReleases?.['0.1.2-rc.1']).toBe('unknown')
+    expect(manifest.dsh?.compatibility?.dshReleases?.['0.1.2-rc.1']).toBe('compatible')
   })
 })
 

@@ -33,6 +33,7 @@
   },
   "files": [
     "assets",
+    "docs/compatibility-0.1.2-rc.1.md",
     "lib",
     "src",
     "cordis.patch.yml",
@@ -59,7 +60,7 @@
     "compatibility": {
       "dsh": ">=0.1.2-rc.1 <0.2.0",
       "dshReleases": {
-        "0.1.2-rc.1": "unknown"
+        "0.1.2-rc.1": "compatible"
       },
       "profiles": [
         "web"

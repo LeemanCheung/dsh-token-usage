@@ -184,7 +184,7 @@ describe('TokenThroughputController', () => {
     })
   })
 
-  it('keeps aggregate status sampling while any listed session lacks a counter', () => {
+  it('treats ready list rows without Token projections as zero instead of blocking the aggregate', () => {
     let state = list(summary('a', 0), summary('b', undefined))
     const controller = new TokenThroughputController({
       getSnapshot: () => state,
@@ -195,10 +195,31 @@ describe('TokenThroughputController', () => {
     state = list(summary('a', 50), summary('b', undefined))
     controller.sample(5_000)
     expect(controller.getSnapshot()).toMatchObject({
-      status: 'sampling',
+      status: 'ready',
       allTokensPerSecond: 10,
       bySession: { a: 10 },
       statusBySession: { a: 'ready' },
+    })
+  })
+
+  it('does not let hundreds of historical rows without Token projections strand global sampling', () => {
+    const historical = Array.from({ length: 447 }, (_, index) => summary(`old-${index}`, undefined))
+    let state = list(summary('active', 0), ...historical)
+    const controller = new TokenThroughputController({
+      getSnapshot: () => state,
+      subscribe: () => () => {},
+    })
+
+    controller.sample(0)
+    state = list(summary('active', 25), ...historical)
+    controller.sample(5_000)
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: 'ready',
+      allTokensPerSecond: 5,
+      activeSessions: 1,
+      bySession: { active: 5 },
+      statusBySession: { active: 'ready' },
     })
   })
 

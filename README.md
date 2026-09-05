@@ -115,7 +115,7 @@ dsh plugin --profile web add ./dsh-token-usage
 
 ### 兼容性、存储与卸载
 
-- `0.3.2` 源码面向 DSH `0.1.2-rc.1` 的 Session Controller、Client Store、UI Renderer 与 Connection 服务。隔离 Web Profile 完成安装、加载和真实页面验收前，清单中的这个精确版本保持 `unknown`；CLI 或非 Web profile 不提供仪表盘。
+- `0.3.2` 源码已验证兼容 DSH `0.1.2-rc.1` 的 Session Controller、Client Store、UI Renderer 与 Connection 接口；验证范围见 [`docs/compatibility-0.1.2-rc.1.md`](docs/compatibility-0.1.2-rc.1.md)。CLI 或非 Web profile 不提供仪表盘。
 - 标题栏和侧栏速率继续表示最近最多 10 秒内由 Provider 确认并写入投影的输出 Token 增量，每 5 秒刷新；缺少投影、计数回退、来源切换和计时器挂起都会重新采样，不把估算值写成真实入账。
 - 数据分为三层：Host 的会话 projection 聚合统计、DSH settings 中的全局与精确路由滚动 30 日预算（`token-usage.rolling30DayBudget` / `token-usage.routeBudgets`），以及当前浏览器 `localStorage` 中最多 24 条的轨迹报告（`dsh-token-usage.trajectory-history.v1`）。聚合 AI 用量报告不会持久化。
 - 卸载是移除插件挂载，并不是数据重置流程。若要减少本地残留，请先在轨迹历史中删除报告、将预算清零，再按 DSH 自身的 session/cache 保留策略处理 projection 数据。

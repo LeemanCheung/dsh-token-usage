@@ -147,16 +147,13 @@ export class TokenThroughputController implements ObservableSnapshot<TokenThroug
 
     const state = this.sessions.getSnapshot()
     const rawCounters = new Map<string, RawOutputCounter>()
-    const missingCounters = new Set<string>()
     for (const summary of Object.values(state.byId)) {
       const sessionId = String(summary.id)
       const counter = outputCounter(summary)
       if (counter !== undefined) rawCounters.set(sessionId, counter)
-      else missingCounters.add(sessionId)
     }
     for (const [sessionId, counter] of this.scopedCounters) {
       rawCounters.set(sessionId, counter)
-      missingCounters.delete(sessionId)
     }
 
     // A counter reset, source switch, or temporary disappearance starts a new
@@ -221,7 +218,11 @@ export class TokenThroughputController implements ObservableSnapshot<TokenThroug
     const everyCurrentReady = current.size > 0
       && Object.values(statusBySession).every(status => status === 'ready')
     this.snapshot = Object.freeze({
-      status: state.phase !== 'ready' || missingCounters.size > 0
+      // A ready Session list may legitimately contain old, blank, or pre-plugin
+      // rows with no Token projection. They contribute zero until an
+      // authoritative counter appears and must not keep the global indicator
+      // in a permanent sampling state.
+      status: state.phase !== 'ready'
         ? 'sampling'
         : current.size === 0
         ? (hasPriorSample ? 'ready' : 'sampling')
