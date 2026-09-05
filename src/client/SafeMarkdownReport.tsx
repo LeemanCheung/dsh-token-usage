@@ -8,13 +8,18 @@ export function SafeMarkdownReport({
   className,
   copyLabel,
   copiedLabel,
+  footnotesLabel,
 }: {
   report: string
   className?: string | undefined
   copyLabel: string
   copiedLabel: string
+  footnotesLabel: string
 }): ReactNode {
   const safeReport = useMemo(() => safeModelMarkdown(report), [report])
-  const codeLabels = useMemo(() => ({ copyLabel, copiedLabel }), [copiedLabel, copyLabel])
-  return <div className={className}><MarkdownText text={safeReport} codeLabels={codeLabels} /></div>
+  const labels = useMemo(() => ({
+    code: { copyLabel, copiedLabel },
+    footnotes: footnotesLabel,
+  }), [copiedLabel, copyLabel, footnotesLabel])
+  return <div className={className}><MarkdownText text={safeReport} labels={labels} /></div>
 }

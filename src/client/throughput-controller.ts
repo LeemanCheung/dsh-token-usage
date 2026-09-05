@@ -1,8 +1,7 @@
 /** Shared browser-side sampler for the recent confirmed provider-output rate. */
 
-import type {
-  ObservableSnapshot, SessionListState, SessionSummary,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type { TokenUsageRecorderProjection } from '../types.ts'
 

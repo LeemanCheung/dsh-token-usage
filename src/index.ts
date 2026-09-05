@@ -4,12 +4,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
+import type {} from '@deepseek-ai/dsh-settings'
 import {
   TOKEN_USAGE_SETTINGS_NAMESPACE,
   type TokenUsageBudgetSettings,
@@ -48,7 +48,7 @@ const auxiliaryPlugin = {
   apply: installRpc,
 }
 
-const BUDGET_NAMESPACE = settingsNamespace(TOKEN_USAGE_SETTINGS_NAMESPACE)
+const BUDGET_NAMESPACE = TOKEN_USAGE_SETTINGS_NAMESPACE
 const MAX_ROUTE_BUDGETS = 64
 const RouteBudgetSchema: z<TokenUsageRouteBudget> = z.object({
   provider: z.string().min(1).max(256),
@@ -524,13 +524,11 @@ function installRpc(ctx: Context): void {
             ok: true,
             value: await withProgress(request.progressId, async report => {
               const live = ctx.sessions.get(request.sessionId)
-              let events = live?.events
+              let events = live?.snapshotEvents()
               if (events === undefined) {
-                const persistence = ctx.get('sessionPersistence')
-                if (persistence === undefined) {
-                  throw new Error('Trajectory analysis cannot read cold sessions because persistence is unavailable.')
-                }
-                events = (await persistence.inspect(request.sessionId, analysisSignal)).events
+                analysisSignal.throwIfAborted()
+                events = (await ctx.sessionQuery.readSession(request.sessionId)).events
+                analysisSignal.throwIfAborted()
               }
               if (events.length === 0) throw new Error('This session has no trajectory events to analyze.')
               return analyzeTrajectory(
@@ -552,7 +550,7 @@ function installRpc(ctx: Context): void {
       default:
         return rpcError(`Unknown Token usage endpoint: ${endpoint}`)
       }
-    }, { authority: 'loopback' })
+    })
     return async () => {
       lifecycle.abort(new Error('token usage plugin disposed'))
       await dispose()
@@ -567,8 +565,13 @@ async function warmRecord(ctx: Context, record: SessionRecord, signal: AbortSign
     if (live !== undefined) {
       await ctx.sessionProjectionCache.write(live)
     } else if (record.persisted) {
-      await ctx.sessionProjectionCache.coldSnapshot(record.header.id, signal)
+      const loaded = await ctx.sessionQuery.readSession(record.header.id)
       if (signal.aborted) return
+      ctx.sessionProjectionCache.coldSnapshot(
+        loaded.session,
+        loaded.inheritedEventCount,
+        loaded.events,
+      )
       const attached = ctx.sessions.get(record.header.id)
       if (attached !== undefined) await ctx.sessionProjectionCache.write(attached)
     }

@@ -8,6 +8,23 @@ import buildConfig, { canonicalCssLocation, CSS_MODULE_PATTERN } from '../tsdown
 const root = fileURLToPath(new URL('..', import.meta.url))
 const cssPath = resolvePath(root, 'src/client/TokenThroughput.module.css')
 const cssSource = readFileSync(cssPath)
+const manifest = JSON.parse(readFileSync(resolvePath(root, 'package.json'), 'utf8')) as {
+  version: string
+  dsh?: { client?: { inject?: string[] }; compatibility?: { dshReleases?: Record<string, string> } }
+}
+
+describe('DSH 0.1.2 package contract', () => {
+  it('uses the replacement client services and keeps live compatibility unclaimed', () => {
+    expect(manifest.version).toBe('0.3.2')
+    expect(manifest.dsh?.client?.inject).not.toContain('@deepseek-ai/dsh-client-runtime')
+    expect(manifest.dsh?.client?.inject).toEqual(expect.arrayContaining([
+      '@deepseek-ai/dsh-api-session-controller',
+      '@deepseek-ai/dsh-client-connection',
+      '@deepseek-ai/dsh-client-ui-renderer',
+    ]))
+    expect(manifest.dsh?.compatibility?.dshReleases?.['0.1.2-rc.1']).toBe('unknown')
+  })
+})
 
 function cssClassMap(projectRoot: string, packageId: string, pattern: string): Record<string, string> {
   const result = transform({

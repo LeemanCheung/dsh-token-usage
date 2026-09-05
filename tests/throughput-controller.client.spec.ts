@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type {
-  ObservableSnapshot, SessionListState, SessionSummary,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type {} from '../src/types.ts'
 import {
   formatTokensPerSecond, THROUGHPUT_SAMPLE_INTERVAL_MS, TokenThroughputController,

@@ -157,7 +157,7 @@ function canonicalSourceMapPlugin() {
 }
 
 /**
- * The shared rc.6 preset at DSH `fb82698709c39f1860b0ab0ed147e1fa30c1d5d0`
+ * The DSH `0.1.2-rc.1` preset at `a66e4702047846cdaa10c66c9d3df3951f5ea70d`
  * feeds Lightning CSS an absolute filename without a
  * projectRoot and serializes its export table in insertion order. That makes
  * committed bundles vary by checkout path and sometimes by repeated build.

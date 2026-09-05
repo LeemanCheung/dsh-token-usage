@@ -37,6 +37,13 @@ interface RecorderState {
   lastAssistant: AssistantSample | null
 }
 
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionStateMap {
+    /** Internal durable fold state for the Token usage recorder. */
+    tokenUsageRecorder: RecorderState
+  }
+}
+
 const bucketsSchema = z.object({
   uncachedInputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
@@ -66,6 +73,41 @@ const projectionSchema: z.ZodType<TokenUsageRecorderProjection> = z.object({
     date: z.string(),
     usage: bucketsSchema,
   }).strict()),
+}).strict()
+
+const routeSchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+}).strict()
+const modelRecordSchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+  assistantRequests: z.number().int().nonnegative(),
+  compactionRequests: z.number().int().nonnegative(),
+  usage: bucketsSchema,
+}).strict()
+const modelDayRecordSchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+  date: z.string(),
+  usage: bucketsSchema,
+}).strict()
+const recorderStateSchema: z.ZodType<RecorderState> = z.object({
+  route: routeSchema.nullable(),
+  assistantRequests: z.number().int().nonnegative(),
+  compactionRequests: z.number().int().nonnegative(),
+  compactionUsage: bucketsSchema,
+  usage: bucketsSchema,
+  models: z.record(z.string(), modelRecordSchema),
+  days: z.record(z.string(), bucketsSchema),
+  modelDays: z.record(z.string(), modelDayRecordSchema),
+  lastAssistant: z.object({
+    turn: z.number().int().nonnegative(),
+    step: z.number().int().nonnegative(),
+    route: routeSchema,
+    day: z.string(),
+    usage: bucketsSchema,
+  }).strict().nullable(),
 }).strict()
 
 /** Create detached zero buckets for projection state. */
@@ -203,11 +245,8 @@ function totalTokens(usage: TokenUsageBuckets): number {
 }
 
 /** Durable all-request token usage projection, including context compactions. */
-export const tokenUsageRecorderProjectionDefinition:
-ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
-  key: 'tokenUsageRecorder',
-  schema: projectionSchema,
-  init: () => ({
+function initialRecorderState(): RecorderState {
+  return {
     route: null,
     assistantRequests: 0,
     compactionRequests: 0,
@@ -217,7 +256,34 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
     days: {},
     modelDays: {},
     lastAssistant: null,
-  }),
+  }
+}
+
+/** Build the detached client-visible value from one durable fold state. */
+function recorderView(state: RecorderState): TokenUsageRecorderProjection {
+  return {
+    assistantRequests: state.assistantRequests,
+    compactionRequests: state.compactionRequests,
+    compactionUsage: state.compactionUsage,
+    usage: state.usage,
+    models: Object.values(state.models).sort((left, right) =>
+      totalTokens(right.usage) - totalTokens(left.usage)
+      || left.provider.localeCompare(right.provider)
+      || left.model.localeCompare(right.model)),
+    days: Object.entries(state.days)
+      .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
+      .sort((left, right) => left.date.localeCompare(right.date)),
+    modelDays: Object.values(state.modelDays).sort((left, right) =>
+      left.date.localeCompare(right.date)
+      || left.provider.localeCompare(right.provider)
+      || left.model.localeCompare(right.model)),
+  }
+}
+
+export const tokenUsageRecorderProjectionDefinition = {
+  key: 'tokenUsageRecorder',
+  stateSchema: recorderStateSchema,
+  init: initialRecorderState,
   apply: (state, event) => {
     if (isReplacementSurfaceEvent(event)) return state
     if (event.type === 'request/context') {
@@ -321,29 +387,16 @@ ProjectionDefinition<'tokenUsageRecorder', RecorderState> = {
       lastAssistant: { turn, step, route, day, usage },
     }
   },
-  view: state => ({
-    assistantRequests: state.assistantRequests,
-    compactionRequests: state.compactionRequests,
-    compactionUsage: state.compactionUsage,
-    usage: state.usage,
-    models: Object.values(state.models).sort((left, right) =>
-      totalTokens(right.usage) - totalTokens(left.usage)
-      || left.provider.localeCompare(right.provider)
-      || left.model.localeCompare(right.model)),
-    days: Object.entries(state.days)
-      .map(([date, usage]): DailyTokenUsageRecord => ({ date, usage }))
-      .sort((left, right) => left.date.localeCompare(right.date)),
-    modelDays: Object.values(state.modelDays).sort((left, right) =>
-      left.date.localeCompare(right.date)
-      || left.provider.localeCompare(right.provider)
-      || left.model.localeCompare(right.model)),
-  }),
+  wire: {
+    viewSchema: projectionSchema,
+    view: recorderView,
+  },
   stateVersion: 7,
-}
+} satisfies ProjectionDefinition<'tokenUsageRecorder', RecorderState>
 
 /** Fold one complete event sequence through the canonical persistent projection reducer. */
 export function projectTokenUsage(events: readonly SessionEvent[]): TokenUsageRecorderProjection {
-  let state = tokenUsageRecorderProjectionDefinition.init()
+  let state = initialRecorderState()
   for (const event of events) state = tokenUsageRecorderProjectionDefinition.apply(state, event)
-  return tokenUsageRecorderProjectionDefinition.view(state)
+  return recorderView(state)
 }

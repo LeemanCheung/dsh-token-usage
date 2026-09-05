@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ObservableSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type {
@@ -1250,6 +1252,7 @@ function UsageAnalysisPanel({
           className={css.analysisReport}
           copyLabel={t('copyCode')}
           copiedLabel={t('copiedCode')}
+          footnotesLabel={t('footnotes')}
         />
       </>}
     </div>
@@ -1349,6 +1352,7 @@ export function TrajectoryAnalysisPanel({ state, download, t }: {
         className={css.analysisReport}
         copyLabel={t('copyCode')}
         copiedLabel={t('copiedCode')}
+        footnotesLabel={t('footnotes')}
       />
       <p className={css.analysisPrivacy}>{t('analysisPrivacy')}</p>
     </div>

@@ -149,7 +149,7 @@ describe('tokenUsageRecorder projection', () => {
       },
     }))
 
-    const view = definition.view(state)
+    const view = definition.wire.view(state)
     expect(view).toEqual({
       assistantRequests: 1,
       compactionRequests: 1,
@@ -260,7 +260,7 @@ describe('tokenUsageRecorder projection', () => {
       },
     }))
 
-    const view = definition.view(state)
+    const view = definition.wire.view(state)
     expect(view.days).toEqual([{
       date: '2026-08-13',
       usage: {
@@ -351,7 +351,7 @@ describe('tokenUsageRecorder projection', () => {
       },
     }))
 
-    expect(definition.view(state)).toEqual({
+    expect(definition.wire.view(state)).toEqual({
       assistantRequests: 2,
       compactionRequests: 0,
       compactionUsage: {
@@ -467,7 +467,7 @@ describe('tokenUsageRecorder projection', () => {
       },
     ]
     for (const item of events) state = definition.apply(state, event(item))
-    const view = definition.view(state)
+    const view = definition.wire.view(state)
     const sum = (records: ReadonlyArray<{ usage: typeof view.usage }>) => records.reduce((total, record) => ({
       uncachedInputTokens: total.uncachedInputTokens + record.usage.uncachedInputTokens,
       outputTokens: total.outputTokens + record.usage.outputTokens,
@@ -509,7 +509,7 @@ describe('tokenUsageRecorder projection', () => {
       data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 3, outputTokens: 1 } } },
     }))
 
-    expect(definition.view(state)).toMatchObject({
+    expect(definition.wire.view(state)).toMatchObject({
       assistantRequests: 2,
       usage: { uncachedInputTokens: 3, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
       models: [{ provider: 'deepseek', model: 'deepseek-chat', assistantRequests: 2 }],
@@ -526,7 +526,7 @@ describe('tokenUsageRecorder projection', () => {
     ]
     for (const item of events) state = definition.apply(state, event(item))
 
-    expect(definition.view(state)).toMatchObject({
+    expect(definition.wire.view(state)).toMatchObject({
       assistantRequests: 3,
       usage: { uncachedInputTokens: 5, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
       models: [{ provider: 'deepseek', model: 'deepseek-chat', assistantRequests: 3 }],
@@ -541,7 +541,7 @@ describe('tokenUsageRecorder projection', () => {
       data: { provider: 'deepseek', model: 'deepseek-chat', summary: 'private' },
     }))
 
-    expect(definition.view(state)).toMatchObject({
+    expect(definition.wire.view(state)).toMatchObject({
       compactionRequests: 1,
       compactionUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
       models: [{ provider: 'deepseek', model: 'deepseek-chat', compactionRequests: 1 }],
@@ -566,7 +566,7 @@ describe('tokenUsageRecorder projection', () => {
     }))
 
     expect(replaced).toBe(original)
-    expect(definition.view(replaced)).toMatchObject({
+    expect(definition.wire.view(replaced)).toMatchObject({
       assistantRequests: 1,
       usage: { uncachedInputTokens: 3, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
     })

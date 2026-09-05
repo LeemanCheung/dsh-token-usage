@@ -6,6 +6,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
@@ -30,15 +31,48 @@ function linkPackage(name, source) {
   replaceLink(join(targetRoot, ...name.split('/')), source)
 }
 
+/**
+ * DSH 0.1.2 resolves a client preset's production externals from the Harness
+ * workspace manifest roster. Expose a manifest-only copy under the dedicated
+ * packages/external/dsh-token-usage bridge without replacing an unrelated
+ * path. Node's Windows glob does not traverse directory junctions here, so a
+ * physical one-file directory is required.
+ */
+function ensurePluginWorkspaceBridge() {
+  const source = realpathSync(process.cwd())
+  const bridge = join(harnessRoot, 'packages', 'external', 'dsh-token-usage')
+  if (existsSync(bridge)) {
+    if (realpathSync(bridge) === source) {
+      rmSync(bridge, { force: true, recursive: true })
+    } else {
+      const existingManifest = join(bridge, 'package.json')
+      const existingName = existsSync(existingManifest)
+        ? JSON.parse(readFileSync(existingManifest, 'utf8')).name
+        : undefined
+      if (existingName !== 'dsh-token-usage') {
+        throw new Error(`DeepSeek Harness workspace bridge already belongs to another checkout: ${bridge}`)
+      }
+    }
+  }
+  mkdirSync(bridge, { recursive: true })
+  writeFileSync(join(bridge, 'package.json'), readFileSync(join(source, 'package.json')))
+}
+
 function mergeInstalledPackages(sourceRoot) {
   if (!existsSync(sourceRoot)) return
   for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
     if (entry.name === '.bin' || entry.name === '.pnpm') continue
     const source = join(sourceRoot, entry.name)
+    // pnpm can leave platform-optional directory links whose targets are not
+    // installed on this OS. They are not usable dependencies and realpathSync
+    // would abort the whole local toolchain link on Windows.
+    if (!existsSync(source)) continue
     if (entry.name.startsWith('@') && entry.isDirectory()) {
       for (const scoped of readdirSync(source, { withFileTypes: true })) {
         if (!scoped.isDirectory() && !scoped.isSymbolicLink()) continue
-        linkPackage(`${entry.name}/${scoped.name}`, join(source, scoped.name))
+        const scopedSource = join(source, scoped.name)
+        if (!existsSync(scopedSource)) continue
+        linkPackage(`${entry.name}/${scoped.name}`, scopedSource)
       }
       continue
     }
@@ -63,6 +97,7 @@ function discoverWorkspacePackages(directory) {
 }
 
 const virtualStore = join(harnessRoot, 'node_modules', '.pnpm')
+ensurePluginWorkspaceBridge()
 if (existsSync(virtualStore)) replaceLink(join(targetRoot, '.pnpm'), virtualStore)
 mergeInstalledPackages(join(virtualStore, 'node_modules'))
 mergeInstalledPackages(join(harnessRoot, 'node_modules'))

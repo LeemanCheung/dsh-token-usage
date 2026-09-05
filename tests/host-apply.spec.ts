@@ -136,7 +136,12 @@ describe('host apply', () => {
     const live = { id: 'live' }
     const register = vi.fn()
     const write = vi.fn(async () => {})
-    const coldSnapshot = vi.fn(async () => ({ values: {}, asOfSeq: -1 }))
+    const coldSnapshot = vi.fn(() => ({ values: {}, asOfSeq: -1 }))
+    const coldLog = {
+      session: { id: 'cold' },
+      inheritedEventCount: 0,
+      events: [],
+    }
     const ctx = {
       ...rpcServices(),
       sessionProjections: { register },
@@ -146,6 +151,7 @@ describe('host apply', () => {
           { header: { id: 'cold' }, live: false, persisted: true },
           { header: { id: 'memory' }, live: false, persisted: false },
         ]),
+        readSession: vi.fn(async () => coldLog),
       },
       sessions: { get: (id: string) => id === 'live' ? live : undefined },
       sessionProjectionCache: { write, coldSnapshot },
@@ -161,9 +167,9 @@ describe('host apply', () => {
     expect(register).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => {
       expect(write).toHaveBeenCalledWith(live)
-      expect(coldSnapshot).toHaveBeenCalledWith('cold', expect.any(AbortSignal))
+      expect(coldSnapshot).toHaveBeenCalledWith(coldLog.session, 0, coldLog.events)
     })
-    expect(coldSnapshot).not.toHaveBeenCalledWith('memory', expect.anything())
+    expect(coldSnapshot).toHaveBeenCalledTimes(1)
     await cleanup?.()
   })
 
@@ -173,9 +179,11 @@ describe('host apply', () => {
     let attached: { id: string } | undefined
     const live = { id: 'cold' }
     const write = vi.fn(async () => {})
-    const coldSnapshot = vi.fn(() => new Promise<{ values: {}; asOfSeq: number }>((resolve) => {
-      releaseCold = () => { resolve({ values: {}, asOfSeq: -1 }) }
+    const coldLog = { session: { id: 'cold' }, inheritedEventCount: 0, events: [] }
+    const readSession = vi.fn(() => new Promise<typeof coldLog>((resolve) => {
+      releaseCold = () => { resolve(coldLog) }
     }))
+    const coldSnapshot = vi.fn(() => ({ values: {}, asOfSeq: -1 }))
     const ctx = {
       ...rpcServices(),
       sessionProjections: { register: vi.fn() },
@@ -183,6 +191,7 @@ describe('host apply', () => {
         listSessions: vi.fn(async () => [
           { header: { id: 'cold' }, live: false, persisted: true },
         ]),
+        readSession,
       },
       sessions: { get: () => attached },
       sessionProjectionCache: { write, coldSnapshot },
@@ -194,10 +203,11 @@ describe('host apply', () => {
     } as unknown as Context
 
     apply(ctx)
-    await vi.waitFor(() => { expect(coldSnapshot).toHaveBeenCalledTimes(1) })
+    await vi.waitFor(() => { expect(readSession).toHaveBeenCalledWith('cold') })
     attached = live
     releaseCold?.()
 
+    await vi.waitFor(() => { expect(coldSnapshot).toHaveBeenCalledWith(coldLog.session, 0, coldLog.events) })
     await vi.waitFor(() => { expect(write).toHaveBeenCalledWith(live) })
     await cleanup?.()
   })
@@ -220,7 +230,7 @@ describe('host apply', () => {
       sessionProjectionCache: { write: vi.fn(), coldSnapshot: vi.fn() },
       sessions: {
         get: () => ({
-          events: [
+          snapshotEvents: () => [
             { seq: 0, time: 1_000, type: 'turn/start', data: { turn: 1 } },
             { seq: 1, time: 2_000, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
           ],
@@ -626,23 +636,21 @@ describe('host apply', () => {
   it('cancels and drains history warming when its fiber is disposed', async () => {
     let cleanup: (() => Promise<void>) | undefined
     let observedSignal: AbortSignal | undefined
-    const coldSnapshot = vi.fn((_id: string, signal?: AbortSignal) => {
+    const listSessions = vi.fn((signal?: AbortSignal) => {
       observedSignal = signal
-      if (signal === undefined) return Promise.resolve({ values: {}, asOfSeq: -1 })
-      return new Promise<{ values: {}; asOfSeq: number }>((resolve) => {
-        signal.addEventListener('abort', () => { resolve({ values: {}, asOfSeq: -1 }) }, { once: true })
+      if (signal === undefined) return Promise.resolve([])
+      return new Promise<[]>(resolve => {
+        signal.addEventListener('abort', () => { resolve([]) }, { once: true })
       })
     })
     const ctx = {
       ...rpcServices(),
       sessionProjections: { register: vi.fn() },
       sessionQuery: {
-        listSessions: vi.fn(async () => [
-          { header: { id: 'cold' }, live: false, persisted: true },
-        ]),
+        listSessions,
       },
       sessions: { get: () => undefined },
-      sessionProjectionCache: { write: vi.fn(), coldSnapshot },
+      sessionProjectionCache: { write: vi.fn(), coldSnapshot: vi.fn() },
       logger: { warn: vi.fn() },
       effect: vi.fn((install: () => () => Promise<void>) => {
         cleanup = install()

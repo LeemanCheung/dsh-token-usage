@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { apply, inject } from '../src/client/index.ts'
 import { TokenUsageSection } from '../src/client/TokenUsageSection.tsx'
 import { AllSessionsThroughput, CurrentSessionThroughput } from '../src/client/TokenThroughput.tsx'

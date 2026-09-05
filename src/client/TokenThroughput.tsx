@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { IconDataOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type { TokenUsageRecorderProjection } from '../types.ts'
 import type { TokenThroughputSnapshot } from './throughput-controller.ts'
