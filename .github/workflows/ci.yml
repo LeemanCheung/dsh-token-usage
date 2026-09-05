@@ -110,7 +110,7 @@ jobs:
             }
           }
 
-          const allowedExact = new Set(['LICENSE', 'README.md', 'cordis.patch.yml', 'package.json'])
+          const allowedExact = new Set(['LICENSE', 'README.md', 'cordis.patch.yml', 'package.json', 'docs/compatibility-0.1.2-rc.1.md'])
           const unexpected = files.filter((path) => (
             !allowedExact.has(path)
             && !path.startsWith('assets/')
