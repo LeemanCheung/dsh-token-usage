@@ -17,6 +17,7 @@ Verified on Windows with DSH `0.1.2-rc.1` on 2026-09-05.
 - The displayed rate covers at most the latest 10 seconds and refreshes every 5 seconds. Missing projections, counter regression, source changes, and suspended timers start a fresh baseline.
 - A displayed `0 tok/s` is a valid loaded state. It does not prove that a new non-zero Provider response was recorded.
 - Historical, blank, or pre-plugin Session rows without a Token projection contribute zero and do not keep the global indicator in a permanent sampling state. If a counter later appears, that Session starts from a fresh baseline.
+- After this fix was rebuilt, the real profile's global indicator left its permanent sampling state and displayed the valid ready value `0 tok/s` across the existing 447-session history.
 - Existing global and exact provider/model budget meanings, local trajectory-report history, and aggregate export fields remain unchanged.
 - The cross-platform CSS module namespace and normalized source-map line endings introduced in `0.3.1` remain enforced by tests and deterministic builds.
 
