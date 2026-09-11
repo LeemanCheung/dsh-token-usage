@@ -19,8 +19,17 @@ jobs:
         with:
           node-version: 22.19.0
       - name: Apply reviewed integration patches
-        run: node .candidate/integrate.mjs
+        run: |
+          node .candidate/integrate.mjs
+          node .candidate/finalize.mjs
+          node .candidate/ui-fixes.mjs
+      - uses: actions/cache@v4
+        id: toolchain
+        with:
+          path: ${{ runner.temp }}/deepseek-harness
+          key: workbench-dsh-a66e470-node22-pnpm11-v1
       - name: Build pinned DSH toolchain
+        if: steps.toolchain.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -33,13 +42,22 @@ jobs:
           corepack prepare pnpm@11.7.0 --activate
           pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
           pnpm --dir "$harness" run build:lib
-          ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
-          node scripts/link-dsh-workspace.mjs "$harness" "$GITHUB_WORKSPACE/node_modules"
+      - name: Link pinned dependencies
+        run: |
+          ln -sfn "$RUNNER_TEMP/deepseek-harness" "$GITHUB_WORKSPACE/../deepseek-harness"
+          node scripts/link-dsh-workspace.mjs "$RUNNER_TEMP/deepseek-harness" "$GITHUB_WORKSPACE/node_modules"
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+          mkdir -p test-results/workbench
       - name: Typecheck
-        run: npm run typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck 2>&1 | tee test-results/workbench/typecheck.log
       - name: Regression tests
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee test-results/workbench/unit-tests.log
       - name: Browser and Host integration
         shell: bash
         run: |
@@ -49,11 +67,11 @@ jobs:
         run: |
           set -euo pipefail
           npm run build
-          sha256sum lib/client.js lib/client.js.map lib/index.js > "$RUNNER_TEMP/workbench-bundles.sha256"
+          sha256sum lib/client.js lib/client.js.map lib/index.js > test-results/workbench/bundle-sha256.txt
           npm run build
-          sha256sum --check "$RUNNER_TEMP/workbench-bundles.sha256"
+          sha256sum --check test-results/workbench/bundle-sha256.txt
           git diff --check
-          npm pack --dry-run --json
+          npm pack --dry-run --json > test-results/workbench/package-manifest.json
       - name: Commit verified generated source and bundles on this feature branch only
         shell: bash
         run: |
@@ -65,16 +83,16 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/index.ts src/trajectory-analysis.ts src/client/index.ts package.json README.md .github/workflows/ci.yml lib
+          git add src package.json README.md .github/workflows/ci.yml lib
           if ! git diff --cached --quiet; then
             git commit -m 'build: verify workbench integration and regenerate deterministic bundles'
             git push origin HEAD:refs/heads/feat/local-usage-workbench
           fi
-      - name: Upload browser evidence
+      - name: Upload browser and verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: workbench-browser-evidence
+          name: workbench-verification-evidence
           path: test-results/workbench
           if-no-files-found: ignore
           retention-days: 14
