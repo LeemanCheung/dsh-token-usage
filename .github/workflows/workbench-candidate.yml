@@ -23,11 +23,12 @@ jobs:
           node .candidate/integrate.mjs
           node .candidate/finalize.mjs
           node .candidate/ui-fixes.mjs
-      - uses: actions/cache@v4
+          node .candidate/assert-integration.mjs
+      - uses: actions/cache/restore@v4
         id: toolchain
         with:
           path: ${{ runner.temp }}/deepseek-harness
-          key: workbench-dsh-a66e470-node22-pnpm11-v1
+          key: workbench-dsh-a66e470-node22-pnpm11-v2
       - name: Build pinned DSH toolchain
         if: steps.toolchain.outputs.cache-hit != 'true'
         shell: bash
@@ -42,6 +43,11 @@ jobs:
           corepack prepare pnpm@11.7.0 --activate
           pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
           pnpm --dir "$harness" run build:lib
+      - uses: actions/cache/save@v4
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/deepseek-harness
+          key: workbench-dsh-a66e470-node22-pnpm11-v2
       - name: Link pinned dependencies
         run: |
           ln -sfn "$RUNNER_TEMP/deepseek-harness" "$GITHUB_WORKSPACE/../deepseek-harness"
@@ -61,7 +67,8 @@ jobs:
       - name: Browser and Host integration
         shell: bash
         run: |
-          if test -f scripts/run-workbench-e2e.sh; then bash scripts/run-workbench-e2e.sh; fi
+          set -euo pipefail
+          bash scripts/run-workbench-e2e.sh 2>&1 | tee test-results/workbench/browser.log
       - name: Rebuild deterministic installable bundles
         shell: bash
         run: |
@@ -83,7 +90,7 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src package.json README.md .github/workflows/ci.yml lib
+          git add src tests scripts package.json README.md .github/workflows/ci.yml lib
           if ! git diff --cached --quiet; then
             git commit -m 'build: verify workbench integration and regenerate deterministic bundles'
             git push origin HEAD:refs/heads/feat/local-usage-workbench
