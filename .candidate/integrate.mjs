@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 function replace(path, before, after) {
-  const text = readFileSync(path, 'utf8')
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
   if (text.includes(after)) return
-  if (text.split(before).length !== 2) throw new Error(`Integration anchor changed: ${path}: ${before.slice(0, 100)}`)
+  if (text.split(before).length !== 2) throw new Error(`Integration anchor changed (${text.split(before).length - 1} matches): ${path}: ${JSON.stringify(before)}`)
   writeFileSync(path, text.replace(before, after))
 }
 replace('src/trajectory-analysis.ts',
@@ -11,7 +11,14 @@ replace('src/trajectory-analysis.ts',
 replace('src/trajectory-analysis.ts', '    routeAliases.set(key, alias)\n    return alias', '    routeAliases.set(key, alias)\n    localRoutes?.set(alias.model, { ...value })\n    return alias')
 replace('src/index.ts', "import { analyzeTrajectory } from './trajectory-analysis.ts'", "import { analyzeTrajectory } from './trajectory-analysis.ts'\nimport { createWorkbenchHost } from './workbench/host.ts'")
 replace('src/index.ts', '  const activeProgress = new Map<string, ActiveAnalysisProgress>()', "  let workbench: ReturnType<typeof createWorkbenchHost> | undefined\n  const getWorkbench = () => workbench ??= createWorkbenchHost(ctx)\n  const activeProgress = new Map<string, ActiveAnalysisProgress>()")
-replace('src/index.ts', '      const operationSignal = AbortSignal.any([signal, lifecycle.signal])\n      switch (endpoint)', "      const operationSignal = AbortSignal.any([signal, lifecycle.signal])\n      if (endpoint.startsWith('workbench/')) return getWorkbench().handle(endpoint, payload, operationSignal)\n      switch (endpoint)")
+{
+  const path = 'src/index.ts', text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+  if (!text.includes("endpoint.startsWith('workbench/')")) {
+    const pattern = /^(\s*)switch \(endpoint\) \{/gm
+    if ([...text.matchAll(pattern)].length !== 1) throw new Error('Expected exactly one private RPC switch')
+    writeFileSync(path, text.replace(pattern, (_, indent) => `${indent}if (endpoint.startsWith('workbench/')) return getWorkbench().handle(endpoint, payload, operationSignal)\n${indent}switch (endpoint) {`))
+  }
+}
 replace('src/index.ts', `value: await withProgress(request.progressId, report => analyzeTokenUsage(
               { llm: runtime.llm },
               request.input,
