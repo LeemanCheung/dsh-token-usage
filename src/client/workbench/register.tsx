@@ -37,7 +37,7 @@ export function registerWorkbench(ctx: Context, connection: ConnectionHandle): v
   ctx.effect(() => {
     if (typeof window === 'undefined') return
     return installSummaryBridge(window, port, () => {
-      const state = ctx.sessions.list.get()
+      const state = ctx.sessions.list.getSnapshot()
       if (state.phase !== 'ready') return null
       return aggregateUsage(state.ids.map(id => state.byId[id]).filter((value): value is SessionSummary => value !== undefined)).sessions
     })
