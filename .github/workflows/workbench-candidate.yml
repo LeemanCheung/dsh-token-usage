@@ -1,0 +1,80 @@
+name: Workbench candidate verification
+on:
+  push:
+    branches: [feat/local-usage-workbench]
+    paths: [.candidate/ready]
+permissions:
+  contents: write
+concurrency:
+  group: workbench-candidate
+  cancel-in-progress: true
+jobs:
+  verify:
+    if: github.repository == 'LeemanCheung/dsh-token-usage' && github.ref == 'refs/heads/feat/local-usage-workbench'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Apply reviewed integration patches
+        run: node .candidate/integrate.mjs
+      - name: Build pinned DSH toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          harness="$RUNNER_TEMP/deepseek-harness"
+          git init "$harness"
+          git -C "$harness" remote add origin https://github.com/deepseek-ai/deepseek-harness.git
+          git -C "$harness" fetch --depth 1 origin a66e4702047846cdaa10c66c9d3df3951f5ea70d
+          git -C "$harness" checkout --detach FETCH_HEAD
+          corepack enable
+          corepack prepare pnpm@11.7.0 --activate
+          pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts
+          pnpm --dir "$harness" run build:lib
+          ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
+          node scripts/link-dsh-workspace.mjs "$harness" "$GITHUB_WORKSPACE/node_modules"
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Regression tests
+        run: npm test
+      - name: Browser and Host integration
+        shell: bash
+        run: |
+          if test -f scripts/run-workbench-e2e.sh; then bash scripts/run-workbench-e2e.sh; fi
+      - name: Rebuild deterministic installable bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          sha256sum lib/client.js lib/client.js.map lib/index.js > "$RUNNER_TEMP/workbench-bundles.sha256"
+          npm run build
+          sha256sum --check "$RUNNER_TEMP/workbench-bundles.sha256"
+          git diff --check
+          npm pack --dry-run --json
+      - name: Commit verified generated source and bundles on this feature branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote=$(git ls-remote origin refs/heads/feat/local-usage-workbench | cut -f1)
+          if test "$remote" != "$GITHUB_SHA"; then
+            echo 'Candidate source changed during verification; no generated files published.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/index.ts src/trajectory-analysis.ts src/client/index.ts package.json README.md .github/workflows/ci.yml lib
+          if ! git diff --cached --quiet; then
+            git commit -m 'build: verify workbench integration and regenerate deterministic bundles'
+            git push origin HEAD:refs/heads/feat/local-usage-workbench
+          fi
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench-browser-evidence
+          path: test-results/workbench
+          if-no-files-found: ignore
+          retention-days: 14
