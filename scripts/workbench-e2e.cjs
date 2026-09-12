@@ -1,0 +1,161 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs/promises')
+const path = require('node:path')
+const { chromium, expect } = require(path.join(process.env.WORKBENCH_BROWSER_TOOLS, 'node_modules/@playwright/test'))
+const output = path.resolve('test-results/workbench')
+const results = []
+const errors = []
+let browser, page
+const base = 'http://127.0.0.1:18768'
+const button = name => page.getByRole('button', { name, exact: true })
+const nav = async name => { await button(name).click() }
+const field = name => page.getByLabel(name, { exact: true })
+const idle = async () => { await expect(button('Refresh settings and ledger')).toBeEnabled(); await expect(page.getByRole('alert')).toHaveCount(0) }
+const rpc = async (endpoint, payload = {}) => {
+  const response = await page.request.post(`${base}/rpc/${encodeURIComponent(endpoint)}`, { data: payload })
+  assert.equal(response.status(), 200)
+  const body = await response.json(); assert.equal(body.ok, true, JSON.stringify(body)); return body.value
+}
+const step = async (name, action) => {
+  const start = Date.now()
+  try { await action(); results.push({ name, status: 'passed', durationMs: Date.now() - start }); console.log(`PASS ${name}`) }
+  catch (error) { results.push({ name, status: 'failed', message: String(error), durationMs: Date.now() - start }); throw error }
+}
+const download = async (name, filename) => {
+  const pending = page.waitForEvent('download'); await button(name).click(); const file = await pending
+  const destination = path.join(output, filename); await file.saveAs(destination); return fs.readFile(destination, 'utf8')
+}
+;(async () => {
+  await fs.mkdir(output, { recursive: true })
+  browser = await chromium.launch({ headless: true })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true })
+  // Fixed clock keeps rolling windows reproducible; real timers and network remain active.
+  await context.addInitScript(() => { const RealDate = Date; class FixtureDate extends RealDate { constructor(...args) { super(...(args.length ? args : ['2026-09-11T12:00:00Z'])) } static now() { return RealDate.parse('2026-09-11T12:00:00Z') } } window.Date = FixtureDate })
+  page = await context.newPage()
+  page.on('pageerror', error => errors.push(String(error)))
+  await step('StrictMode startup and local inspection without an LLM', async () => {
+    await page.goto(base)
+    await expect(button('Inspect session')).toBeVisible(); await idle()
+    await button('Inspect session').click(); await idle()
+    await expect(page.getByRole('heading', { name: 'Usage receipt', exact: true })).toBeVisible()
+    assert.equal((await rpc('workbench/read')).ledger.length, 0)
+    await expect(page.getByText('180', { exact: true }).first()).toBeVisible()
+    await page.screenshot({ path: path.join(output, 'desktop-inspection.png'), fullPage: true })
+  })
+  await step('Create a versioned price card and price a receipt by currency', async () => {
+    await nav('Price cards')
+    await field('Card name').fill('Fixture reference')
+    await field('Provider').fill('fixture-provider'); await field('Model').fill('fixture-model')
+    await field('Effective from (ISO 8601 with timezone)').fill('2026-01-01T00:00:00Z')
+    for (const [key, value] of Object.entries({ uncachedInputTokens: 1, outputTokens: 2, cacheReadTokens: 0.1, cacheWriteTokens: 1.25 })) await field(`${key} / 1M`).fill(String(value))
+    await button('Save price card').click(); await idle()
+    assert.equal((await rpc('workbench/read')).config.cards.length, 1)
+    await nav('Inspection / receipt'); await expect(page.getByRole('heading', { name: 'Usage receipt', exact: true })).toBeVisible(); await field('Pricing basis').selectOption('revaluation')
+    await button('Price receipt').click(); await idle()
+    await expect(page.locator('.wbQuote')).toHaveCount(2)
+    const receipt = JSON.parse(await download('Export receipt JSON', 'receipt-anonymized.json'))
+    assert.equal(receipt.totals.usage.uncachedInputTokens, 100)
+    assert.equal(receipt.costs.find(cost => cost.currency === 'USD').status, 'complete')
+    assert.equal(receipt.costs.find(cost => cost.currency === 'CNY').status, 'unavailable')
+    const text = JSON.stringify(receipt)
+    for (const secret of ['SECRET_', 'PRIVATE TITLE', 'fixture-provider', 'fixture-model', 'private-request-']) assert.ok(!text.includes(secret), secret)
+    assert.ok(!Object.hasOwn(receipt, 'sessionId'))
+    assert.ok((await download('Export receipt Markdown', 'receipt.md')).includes('| uncachedInputTokens | 100 |'))
+  })
+  await step('Create and assign a project; persist token and money budgets', async () => {
+    await nav('Projects / budgets')
+    await field('Project name').fill('Integration project'); await field('30-day Token budget (0 disables)').fill('100')
+    await button('Create project').click(); await idle()
+    const state = await rpc('workbench/read'), project = state.config.projects[0]
+    await field('Selected session primary project').selectOption(project.id)
+    await field('Tags (comma separated, maximum 12)').fill('coding, reviewed')
+    await button('Assign session').click(); await idle()
+    await expect(page.getByText('Exceeded', { exact: true }).first()).toBeVisible()
+    await field('30-day USD budget (blank disables)').first().fill('1')
+    await button('Save money budgets').first().click(); await idle()
+    const updated = await rpc('workbench/read')
+    assert.deepEqual(updated.config.assignments[0].tags, ['coding', 'reviewed'])
+    assert.equal(updated.config.moneyBudgets[0].amount, 1)
+    await page.screenshot({ path: path.join(output, 'desktop-projects.png'), fullPage: true })
+    await page.reload(); await expect(button('Inspect session')).toBeVisible(); await idle()
+    await nav('Projects / budgets'); await expect(page.getByText('Integration project', { exact: true }).first()).toBeAttached()
+    assert.equal((await rpc('workbench/read')).config.assignments.length, 1)
+  })
+  await step('Complete-day change attribution and CSV export', async () => {
+    await nav('Changes')
+    await field('Complete-day window').selectOption('30')
+    assert.ok((await download('Export full changes CSV', 'changes.csv')).includes('sessionId'))
+    await expect(page.getByText('Unattributed route residual', { exact: true })).toBeVisible()
+  })
+  await step('Cache scenario conserves usage and performs no model analysis', async () => {
+    await nav('Scenarios')
+    const slider = page.getByRole('slider'); await slider.press('Home'); for (let i = 0; i < 10; i++) await slider.press('ArrowRight'); await expect(slider).toHaveValue('0.5')
+    await expect(page.getByText(/Scenario: USD/)).toBeVisible()
+    assert.equal((await rpc('workbench/read')).ledger.length, 0)
+    await page.screenshot({ path: path.join(output, 'desktop-scenario.png'), fullPage: true })
+  })
+  await step('Immutable paired optimization experiments with human acceptance', async () => {
+    await nav('Inspection / receipt'); await button('Inspect session').click(); await idle()
+    await field('Pricing basis').selectOption('revaluation'); await button('Price receipt').click(); await idle()
+    await nav('Experiments')
+    for (const [name, value] of [['Experiment name','Fixture comparison'],['Paired task ID','task-1'],['Task category','coding'],['Input size band','small'],['Run conditions label','same fixture'],['Configuration / preset version label (not content)','baseline-v1']]) await field(name).fill(value)
+    await field('Human acceptance').selectOption('yes')
+    await button('Save current session snapshot').click(); await idle()
+    await field('Variant').selectOption('candidate'); await field('Configuration / preset version label (not content)').fill('candidate-v1')
+    await button('Save current session snapshot').click(); await idle()
+    const runs = (await rpc('workbench/read')).config.experiments
+    assert.equal(runs.length, 2); assert.ok(runs.every(run => run.accepted === true && run.complete))
+    await expect(page.getByText(/Valid pairs: 1/)).toBeVisible()
+    await page.screenshot({ path: path.join(output, 'desktop-experiments.png'), fullPage: true })
+  })
+  await step('Separate auxiliary ledger tracks cumulative usage once and requires clear confirmation', async () => {
+    assert.equal((await page.request.post(`${base}/test/analysis`)).status(), 200)
+    await button('Refresh settings and ledger').click(); await idle(); await nav('Analysis ledger')
+    const entry = (await rpc('workbench/read')).ledger[0]
+    assert.equal(entry.usage.uncachedInputTokens, 9); assert.equal(entry.usage.outputTokens, 5); assert.equal(entry.status, 'completed')
+    assert.ok(!(await download('Export analysis ledger', 'analysis-ledger.json')).includes('fixture-provider'))
+    await page.getByText('Clear auxiliary ledger', { exact: true }).click()
+    await expect(button('Confirm clear auxiliary ledger')).toBeDisabled()
+    await field('Confirm permanent clearing of the auxiliary ledger only').check()
+    await button('Confirm clear auxiliary ledger').click(); await idle()
+    assert.equal((await rpc('workbench/read')).ledger.length, 0)
+  })
+  await step('Weekly export is numeric-only and same-page sharing is opt-in', async () => {
+    await nav('Weekly / integration')
+    const summary = JSON.parse(await download('Export weekly JSON', 'weekly.json'))
+    assert.deepEqual(Object.keys(summary).sort(), ['schema','from','to','timezone','complete','sessions','tokens','delta','cacheReadShare'].sort())
+    assert.ok(!(await download('Export weekly SVG', 'weekly.svg')).includes('PRIVATE TITLE'))
+    await expect(field('Allow plugins in this page to read the numeric summary (off by default)')).not.toBeChecked()
+    await page.evaluate(() => { window.receivedSummaries = []; window.addEventListener('dsh-token-usage:summary', event => window.receivedSummaries.push(event.detail)) })
+    await field('Allow plugins in this page to read the numeric summary (off by default)').click(); await idle(); await expect(field('Allow plugins in this page to read the numeric summary (off by default)')).toBeChecked()
+    await expect.poll(() => page.evaluate(() => window.receivedSummaries.length)).toBeGreaterThan(0)
+    const payload = await page.evaluate(() => window.receivedSummaries.at(-1))
+    assert.ok(!JSON.stringify(payload).includes('PRIVATE TITLE'))
+    await field('Allow plugins in this page to read the numeric summary (off by default)').click(); await idle(); await expect(field('Allow plugins in this page to read the numeric summary (off by default)')).not.toBeChecked()
+    assert.equal((await rpc('workbench/read')).config.shareSummary, false)
+  })
+  await step('Concurrent configuration edits are rejected without overwriting newer settings', async () => {
+    await page.request.post(`${base}/test/concurrent-edit`)
+    await field('Allow plugins in this page to read the numeric summary (off by default)').click()
+    await expect(page.getByRole('alert')).toContainText('changed in another window')
+    assert.equal((await rpc('workbench/read')).config.shareSummary, false)
+    await button('Refresh settings and ledger').click(); await idle()
+  })
+  await step('Chinese mobile interface has no viewport-level horizontal overflow', async () => {
+    await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${base}/?lang=zh`)
+    await expect(page.getByRole('heading', { name: '用量工作台', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '读取并体检', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '用量收据', exact: true })).toBeVisible()
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+    await page.screenshot({ path: path.join(output, 'mobile-zh-inspection.png'), fullPage: true })
+  })
+  assert.deepEqual(errors, [], `Browser runtime errors: ${errors.join('; ')}`)
+})().catch(async error => {
+  console.error(error)
+  if (page) console.error('VISIBLE FIXTURE UI:', (await page.locator('body').innerText().catch(() => '')).slice(-8000))
+  if (page) { await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {}); await fs.writeFile(path.join(output, 'failure.html'), await page.content().catch(() => '')).catch(() => {}) }
+  process.exitCode = 1
+}).finally(async () => {
+  await fs.writeFile(path.join(output, 'browser-results.json'), JSON.stringify({ engine: 'Chromium', fixture: 'actual React workspace + actual Host RPC with synthetic DSH events and LLM transport', results, runtimeErrors: errors }, null, 2))
+  await browser?.close()
+})

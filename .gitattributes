@@ -1,2 +1,9 @@
 * text=auto eol=lf
 *.png binary
+
+# Keep authored source checks intact. The bundled dependency output can retain
+# whitespace in template literals; do not trim JavaScript after source-map generation.
+# Deterministic rebuild and committed-artifact equality remain mandatory in CI.
+lib/client.js linguist-generated=true whitespace=-blank-at-eol
+lib/client.js.map linguist-generated=true
+lib/index.js linguist-generated=true

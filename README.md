@@ -4,7 +4,7 @@
   <a href="https://awesome.re"><img src="https://awesome.re/badge.svg" alt="Awesome"></a>
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek_Harness-plugin-2f6cff.svg" alt="DeepSeek Harness plugin"></a>
-  <img src="https://img.shields.io/badge/version-0.3.2-2f6cff.svg" alt="Version 0.3.2">
+  <img src="https://img.shields.io/badge/version-0.4.0-2f6cff.svg" alt="Version 0.4.0">
   <img src="https://img.shields.io/badge/data-local--first-6f42c1.svg" alt="Local-first data">
   <img src="https://img.shields.io/badge/AI_analysis-opt--in-f59e0b.svg" alt="Opt-in AI analysis">
   <img src="https://img.shields.io/badge/privacy-allowlist-0f9d8a.svg" alt="Allowlist privacy">
@@ -38,6 +38,7 @@
 
 | 领域 | 已实现能力 |
 | --- | --- |
+| **本地用量工作台** | 无模型体检、用量收据、版本化价卡、独立辅助分析账本、7/30/90 日变化贡献、项目/标签与金额预算、人工验收实验、缓存/分时试算、脱敏周报，以及默认关闭的同页面只读摘要。详见 [工作台说明](docs/workbench.md)。 |
 | **精确记账** | 分别记录未缓存输入、输出、缓存读取与缓存写入；`reasoningTokens` 已包含在输出中，不重复计算。流式 usage 先作为临时值，最终消息在同一 attempt 内覆盖它；重试与上下文压缩独立计数。 |
 | **多维聚合** | 以 provider / model、会话、UTC 日期和日期×模型聚合普通对话、每次重试和上下文压缩；旧用量无法归因时单独披露，不破坏总量守恒。 |
 | **概览与活跃度** | 八项概览指标覆盖总量、输入、输出、缓存结构、公开费用、缓存读取避免费用、费率覆盖和有用量会话；30 周热力图支持四类 bucket 悬停与按日会话下钻。 |
@@ -100,7 +101,7 @@
 dsh plugin --profile web add github:LeemanCheung/dsh-token-usage
 ```
 
-安装后重启当前 `dsh web` 进程并刷新 [http://127.0.0.1:3080](http://127.0.0.1:3080)，再打开 **设置 → Token 用量**。
+安装后重启当前 `dsh web` 进程并刷新 [http://127.0.0.1:3080](http://127.0.0.1:3080)，再打开 **设置 → Token 用量**；新增功能位于 **设置 → 用量工作台**。
 
 <details>
 <summary>本地源码开发安装</summary>
@@ -115,9 +116,9 @@ dsh plugin --profile web add ./dsh-token-usage
 
 ### 兼容性、存储与卸载
 
-- `0.3.2` 源码已验证兼容 DSH `0.1.2-rc.1` 的 Session Controller、Client Store、UI Renderer 与 Connection 接口；验证范围见 [`docs/compatibility-0.1.2-rc.1.md`](docs/compatibility-0.1.2-rc.1.md)。CLI 或非 Web profile 不提供仪表盘。
+- `0.4.0` 源码已验证兼容 DSH `0.1.2-rc.1` 的 Session Controller、Client Store、UI Renderer 与 Connection 接口；验证范围见 [`docs/compatibility-0.1.2-rc.1.md`](docs/compatibility-0.1.2-rc.1.md)。CLI 或非 Web profile 不提供仪表盘。
 - 标题栏和侧栏速率继续表示最近最多 10 秒内由 Provider 确认并写入投影的输出 Token 增量，每 5 秒刷新；缺少投影、计数回退、来源切换和计时器挂起都会重新采样，不把估算值写成真实入账。
-- 数据分为三层：Host 的会话 projection 聚合统计、DSH settings 中的全局与精确路由滚动 30 日预算（`token-usage.rolling30DayBudget` / `token-usage.routeBudgets`），以及当前浏览器 `localStorage` 中最多 24 条的轨迹报告（`dsh-token-usage.trajectory-history.v1`）。聚合 AI 用量报告不会持久化。
+- 原有 Token 用量与轨迹报告的数据分为三层：Host 的会话 projection 聚合统计、DSH settings 中的全局与精确路由滚动 30 日预算（`token-usage.rolling30DayBudget` / `token-usage.routeBudgets`），以及当前浏览器 `localStorage` 中最多 24 条的轨迹报告（`dsh-token-usage.trajectory-history.v1`）。聚合 AI 用量报告不会持久化。
 - 卸载是移除插件挂载，并不是数据重置流程。若要减少本地残留，请先在轨迹历史中删除报告、将预算清零，再按 DSH 自身的 session/cache 保留策略处理 projection 数据。
 
 ```powershell
@@ -179,7 +180,7 @@ dsh plugin --profile web remove dsh-token-usage
 - 费率覆盖率按已匹配路由的四类 Token / 全部四类 Token 计算；未覆盖 Token 不进入估算总额，页面会同时显示覆盖 Token 和有用量路由数，部分覆盖不会四舍五入为 100%。它不是实际消费金额覆盖率，不能据此外推未知价格。
 - 缓存读取避免费用仅对已匹配路由计算：`cacheReadTokens × max(inputRate - cacheReadRate, 0) / 1M`；它比较同一静态公开表中的未缓存输入价，不是账单返还。
 - OpenAI 路由没有单独公开的 cache-write 费率时，cache-write 按普通输入费率估算；每条路由的悬停说明会显示所用四项费率与基准日。
-- 历史聚合会按当前内置静态表重估，不按事件发生日的历史价格还原；因此暂不提供 USD 预算。
+- 原「Token 用量」页按内置静态表重估历史聚合，不还原历史账单。新增「用量工作台」支持版本化自定义价卡，以及全局和项目的滚动 30 日 USD/CNY 预算；金额按当前费率重估，币种不相加，覆盖不足时不显示预算内。
 - 价格计算、页面展示和 JSON v3/模型 CSV 只在本地浏览器中使用已持久化的聚合 bucket；价格匹配、覆盖率、估算 USD 和缓存读取避免费用都不会作为外部分析模型的证据，也不会新增会话正文、提示词或响应数据的收集。
 
 <a id="ai-token-用量分析"></a>
@@ -209,7 +210,7 @@ dsh plugin --profile web remove dsh-token-usage
 <a id="会话-token-轨迹分析"></a>
 ## 🧠 会话 Token 轨迹分析
 
-可在设置页 **会话记录** 第一列点击 **分析轨迹**，也可在对话页会话标题操作区点击 **会话 Token 轨迹分析**。两个入口调用同一 Host 分析流程：读取 live 会话完整事件日志，或通过 `sessionPersistence.inspect()` 读取冷会话；浏览器分页不会影响结果。分析器先做确定性 fold，再使用当前入口选中的已接入 provider/model 生成报告；设置页沿用仪表盘选择，对话页拥有独立选择器，两者都会自动预选默认或首个可用路由。[查看完成态与历史截图](#会话轨迹报告与浏览器本地历史)。
+可在设置页 **会话记录** 第一列点击 **分析轨迹**，也可在对话页会话标题操作区点击 **会话 Token 轨迹分析**。两个入口调用同一 Host 分析流程：读取 live 会话完整事件日志，或通过 `sessionQuery.readSession()` 读取冷会话；浏览器分页不会影响结果。分析器先做确定性 fold，再使用当前入口选中的已接入 provider/model 生成报告；设置页沿用仪表盘选择，对话页拥有独立选择器，两者都会自动预选默认或首个可用路由。[查看完成态与历史截图](#会话轨迹报告与浏览器本地历史)。
 
 ### 确定性证据
 
@@ -278,7 +279,7 @@ flowchart LR
 
 已完成日期×模型归因与三维守恒门槛、精确路由 Token 预算和 80%/100%/预测告警、覆盖状态导出、目录失败恢复、分析终态校验，以及非法 RPC 早拒绝、轮询清理和证据上限。后续按以下顺序推进：
 
-1. **P0 · 可信成本与预算策略**：把静态费率表深化为带生效日期、来源和版本的本地 `FeeCatalog`，支持用户精确路由覆盖；在现有 provider/model Token 预算之上增加可信 USD 预算、阈值穿越冷却和本地告警历史。成本仍区分 provider 上报、用户覆盖和公开估算，不冒充账单。参考 [LangSmith cost tracking](https://docs.langchain.com/langsmith/cost-tracking)、[OpenAI Agents SDK usage](https://openai.github.io/openai-agents-python/usage/) 与 [FinOps Anomaly Management](https://www.finops.org/framework/capabilities/anomaly-management/)。
+1. **P0 · 可信成本与预算策略**：工作台已提供生效日期、来源、版本和精确路由匹配的自定义价卡，以及全局/项目 USD、CNY 金额预算。后续补充阈值穿越冷却和本地告警历史。成本仍区分 provider 上报、用户覆盖和公开估算，不冒充账单。参考 [LangSmith cost tracking](https://docs.langchain.com/langsmith/cost-tracking)、[OpenAI Agents SDK usage](https://openai.github.io/openai-agents-python/usage/) 与 [FinOps Anomaly Management](https://www.finops.org/framework/capabilities/anomaly-management/)。
 2. **P1 · 数据质量与查询性能**：集中展示逐日/费率/路由覆盖、未知模型、迟到与不一致记录；把超大的 Dashboard 聚合 Implementation 收进更深的聚合 Module，并为历史预热增加有界并发、增量进度和真实 Web profile E2E。模型级异常仍只在对应日期×模型覆盖完整时启用。
 3. **P2 · 互操作、可访问性与治理**：提供带 schema/时区/费率版本 manifest 的 JSONL 或 [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) 兼容映射；为图形提供等价可排序表格，增强高对比度与键盘说明，并增加按范围删除、保留期限和导出前字段预览。远程 exporter 保持默认关闭和显式 opt-in。
 
@@ -315,7 +316,7 @@ npm run build
 
 ### 测试与费率维护边界
 
-自动化覆盖 projection、聚合、全局/精确路由预算、覆盖状态导出、分析/RPC、报告安全、浏览器历史和组件行为，包括日期×模型三维守恒降级、80%/100%/预测预算状态、非法 RPC 早拒绝、目录超时后恢复、分析轮询清理，以及 48 路由/366 日证据上限；但不是完整的 DSH Web E2E。真实 profile 的安装激活、HMR、Slot/RPC/Schema 版本互操作、英文文案/CSS/reduced-motion 视觉，以及历史预热的全部 fail-soft 分支仍需要人工或浏览器 E2E 验证。费率测试覆盖代表性条目而非完整公开价格目录；修改 `src/pricing.ts` 的任一行时，应逐项复核公开来源、更新基准日/README，并在发布前完成真实 Web profile 验证。
+自动化覆盖 projection、聚合、全局/精确路由预算、覆盖状态导出、分析/RPC、报告安全、浏览器历史和组件行为，包括日期×模型三维守恒降级、80%/100%/预测预算状态、非法 RPC 早拒绝、目录超时后恢复、分析轮询清理，以及 48 路由/366 日证据上限；但不是完整的 DSH Web E2E。工作台另有真实 React 组件与真实 Host RPC、合成事件/模型传输的 Chromium 验收，覆盖中英文、移动端、保存重载、导出和冲突保护；不产生付费模型调用，也不等同于真实提供方账单核对。真实 profile 的安装激活、HMR、Slot/RPC/Schema 版本互操作、英文文案/CSS/reduced-motion 视觉，以及历史预热的全部 fail-soft 分支仍需要人工或浏览器 E2E 验证。费率测试覆盖代表性条目而非完整公开价格目录；修改 `src/pricing.ts` 的任一行时，应逐项复核公开来源、更新基准日/README，并在发布前完成真实 Web profile 验证。
 
 <a id="已知限制"></a>
 ## ⚠️ 已知限制
@@ -327,7 +328,7 @@ npm run build
 - 轨迹报告是模型辅助的资源效率解释，不是策略执行器或合规证明；确定性节点、provider bucket 和对账结果优先于模型推断。
 - provider 当前不提供系统、用户、历史、检索、工具和子代理输入的独立 Token bucket，因此这些细分不会估算；超长元数据轨迹的中段会明确标为不可用。
 - 插件不建设人员、团队、部门、组织、成本中心或行为画像维度；AI 用量报告刷新后消失，轨迹报告只保存在当前浏览器配置中、跨全部会话全局最多 24 条，不跨浏览器同步，也暂不生成历史趋势对比。
-- 分析调用的 Token 在生成进度和完成报告中显示，不计入持久化仪表盘。provider usage 到达前的输出 Token 是基于字符的近似值，不可用于账单。
+- 分析调用的 Token 不并入原会话 projection；0.4.0 起由工作台的独立辅助账本保存，覆盖本版本启用后的调用，最多 512 条并显示淘汰数量。未知用量、失败和取消后的暂定用量单独标识。生成进度中尚未收到 provider usage 的输出估算仍不可用于账单。
 - DSH 当前的 provider 模型目录 Interface 不接受 `AbortSignal`。挂起调用会在刷新间复用，30 秒冷却后允许一次并行恢复尝试；每个 provider 最多保留两个未决底层调用。若两次都永久挂起，该 provider 仍需等待其中一次结算或 LLM runtime 重建。
 - AI 用量分析只可选择当前能由已接入 provider 列出的模型；每日趋势证据最多传递最新 366 天。内置 USD 费率表不是实时账单或汇率服务，仅按文档列出的 OpenAI 路由标签本地匹配；模型建议不接收价格证据，也不替代账单、延迟或质量观测。
 
@@ -343,3 +344,10 @@ npm run build
 ## 📄 License
 
 [MIT](LICENSE) © LeemanCheung
+
+
+## 本地用量工作台（0.4.0）
+
+在设置中打开 **用量工作台 / Usage workbench**。新增无需模型的体检、用量收据、版本化自定义价卡、辅助分析账本、变化归因、项目预算、优化实验室、情景试算与本地周报。原有 Token 用量页和账本口径保持不变。
+
+配置及辅助账本保存在 Host 的 `token-usage-workbench` settings；本地体检只读取元数据，不调用模型。价格是参考估算，不是账单；不同币种不相加。详见 [工作台使用与数据边界](docs/workbench.md)。
