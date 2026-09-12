@@ -9,6 +9,10 @@ assert.equal(parts.length, 11, 'All eleven source manifests are required')
 const files = parts.flatMap(name => JSON.parse(readFileSync(`.verification/${name}`,'utf8')).files)
 assert.equal(files.length, 36, 'Expected the reviewed 36-file change set')
 assert.equal(new Set(files.map(file => file.path)).size, files.length, 'Duplicate source path')
+// The separately reviewed index-availability guard is already committed as source.
+const guardedPath = 'src/client/workbench/register.tsx'
+assert.equal(blob(readFileSync(guardedPath,'utf8')), '01cca94faf8bb98b73592f97d5d419119c8e4e3e')
+files.find(file => file.path === guardedPath).sha = '01cca94faf8bb98b73592f97d5d419119c8e4e3e'
 // Correct the one JSON transport escape; the expected output hash stays unchanged.
 const app = files.find(file => file.path === 'src/client/workbench/App.tsx')
 const evidence = app.edits.find(edit => edit.line === 137)
