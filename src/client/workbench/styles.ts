@@ -45,6 +45,9 @@ export const workbenchCss = `
 .wbRoot .wbError { border: 1px solid #d67255; border-radius: 8px; padding: 13px; margin-bottom: 14px; background: color-mix(in srgb,#d67255 7%,transparent); }
 .wbRoot .wbWeekly { padding: 30px; border-radius: 12px; background: var(--wb-surface); border: 1px solid var(--wb-line); }
 .wbRoot .wbWeekly h3 { font-size: clamp(28px,6vw,46px); margin: 16px 0; }
+.wbRoot .wbExplorer progress { width: clamp(100px,18vw,260px); max-width: 100%; accent-color: var(--wb-accent); }
+.wbRoot .wbExplorer dl > div { display:flex; justify-content:space-between; gap:12px; padding:5px 0; }
+.wbRoot .wbOffline { margin-bottom:18px; }
 .wbRoot footer { border-top: 1px solid var(--wb-line); padding: 20px 0 0; margin-top: 28px; font-size: 12px; opacity: .65; }
 @media(max-width:600px) { .wbRoot { padding: 16px 12px; } .wbRoot .wbHeader { flex-direction: column; gap: 6px; } .wbRoot .wbTabs { gap: 3px; } .wbRoot .wbTabs button { font-size: 12px; padding: 7px 9px; } .wbRoot td { max-width: 240px; } }
 @media(prefers-reduced-motion:reduce) { .wbRoot * { scroll-behavior: auto; } }

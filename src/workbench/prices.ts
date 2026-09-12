@@ -11,8 +11,11 @@ export const total = (usage: Buckets): number => bucketKeys.reduce((sum, key) =>
 export function add(left: Buckets, right: Buckets): Buckets {
   return bucketsSchema.parse(Object.fromEntries(bucketKeys.map(key => [key, left[key] + right[key]])))
 }
+const clocks = new Map<string, Intl.DateTimeFormat>()
 export function localClock(time: number, timezone: string): { day: number; minute: number } {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(time)
+  let formatter = clocks.get(timezone)
+  if (!formatter) { formatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); if (clocks.size >= 64) clocks.clear(); clocks.set(timezone, formatter) }
+  const parts = formatter.formatToParts(time)
   const read = (type: string) => parts.find(part => part.type === type)?.value ?? ''
   return { day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(read('weekday')), minute: Number(read('hour')) * 60 + Number(read('minute')) }
 }

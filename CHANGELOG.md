@@ -6,6 +6,24 @@ This changelog records verifiable changes represented in the repository history.
 
 No entries yet.
 
+## [0.5.0] - 2026-09-12
+
+### Added
+
+- Completed scoped/actionable diagnostics, proportional Token node views and explicit offline receipt storage.
+- Added common-window observable totals and durable request-ID reservations with bounded retention and restart protection.
+- Added immutable price-book revisions, previewed rollback, import confirmation and stable pricing fingerprints.
+- Added experiment ratio denominators and condition tables, post-run acceptance labels and duplicate-snapshot safeguards.
+- Added cross-tariff interval scenarios, ordered reference-cost effects and quality-constrained optimization weekly cards.
+- Added a separate numeric summary v2 event carrying budget states and confirmed-output samples while retaining the v1 contract.
+- Extracted pure usage selectors and added an explicitly advisory upstream compatibility workflow.
+
+### Boundaries
+
+- No real provider calls or production bill verification are claimed. Invalid/unsupported tariffs remain unavailable.
+- v1 persisted workbench state is validated and migrated; old experiments keep missing metrics unavailable.
+- A bounded idempotency record is not an unlimited exactly-once guarantee; explicit new analyses get new IDs.
+
 ## [0.4.0] - 2026-09-12
 
 ### Added

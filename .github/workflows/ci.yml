@@ -106,7 +106,7 @@ jobs:
             'assets/token-usage-insights.png',
             'assets/token-usage-overview.png',
             'assets/token-usage-trajectory-analysis.png',
-            'docs/compatibility-0.1.2-rc.1.md', 'docs/workbench.md',
+            'docs/compatibility-0.1.2-rc.1.md', 'docs/workbench.md', 'docs/workbench-acceptance.md',
             'lib/client.js', 'lib/client.js.map', 'lib/index.js',
             'src/client/index.ts', 'src/index.ts', 'src/types.ts',
             'src/workbench/host.ts', 'src/workbench/schema.ts',
@@ -117,7 +117,7 @@ jobs:
           }
           const allowedExact = new Set([
             'LICENSE', 'README.md', 'cordis.patch.yml', 'package.json',
-            'docs/compatibility-0.1.2-rc.1.md', 'docs/workbench.md',
+            'docs/compatibility-0.1.2-rc.1.md', 'docs/workbench.md', 'docs/workbench-acceptance.md',
           ])
           const unexpected = files.filter((path) => (
             !allowedExact.has(path)

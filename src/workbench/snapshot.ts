@@ -3,6 +3,7 @@ import { isReplacementSurfaceEvent, type SessionEvent } from '@deepseek-ai/dsh-s
 import { prepareTrajectory } from '../trajectory-analysis.ts'
 import { bucketKeys, snapshotSchema, type Configuration, type LocalSnapshot } from './schema.ts'
 import { add, zero } from './prices.ts'
+import { finding, withNodeEvidence } from './diagnostics.ts'
 import { diagnose } from './insights.ts'
 
 /** Parallel work is measured by the union of active intervals. */
@@ -26,7 +27,7 @@ export function buildSnapshot(sessionId: string, events: readonly SessionEvent[]
   const nodes = metrics.spans.map(span => ({
     id: span.id, seq: span.seq, kind: span.kind, status: span.status, finality: span.finality,
     ...(routes.get(span.model) ?? { provider: 'unknown', model: 'unknown' }), usage: { ...span.usage },
-    ...(times.has(span.seq) ? { time: new Date(times.get(span.seq)!).toISOString() } : {}),
+    ...(Number.isFinite(times.get(span.seq)) && Math.abs(times.get(span.seq)!) <= 8.64e15 ? { time: new Date(times.get(span.seq)!).toISOString() } : {}),
   }))
   const usageByKind = (kind: 'retry' | 'compaction' | 'ordinary') => nodes.filter(node => kind === 'compaction' ? node.kind === 'compaction' : node.kind === 'model' && (kind === 'retry' ? node.status === 'retried' : node.status !== 'retried')).reduce((sum, node) => add(sum, node.usage), zero())
   const grouped = new Map<string, { provider: string; model: string; usage: ReturnType<typeof zero> }>()
@@ -52,12 +53,18 @@ export function buildSnapshot(sessionId: string, events: readonly SessionEvent[]
     openTurns: metrics.openTurns, openSteps: metrics.openSteps, unresolvedApprovals: metrics.unresolvedApprovals,
     durationMs: metrics.durationMs, activeDurationMs: intervalUnion(intervals), completedTurns: metrics.completedTurns, failedTurns: metrics.failedTurns,
   }
+  const timeCoverage = nodes.length && nodes.every(node => node.time) ? 'complete' : nodes.some(node => node.time) ? 'partial' : 'unavailable'
+  const routed = nodes.filter(node => node.provider !== 'unknown' && node.model !== 'unknown').length
+  const routeCoverage = nodes.length && routed === nodes.length ? 'complete' : routed ? 'partial' : 'unavailable'
+  const findings = diagnose(totals, thresholds)
+  if (timeCoverage !== 'complete') findings.push(finding('time-coverage', 'warning', nodes.filter(node => !node.time).length, [`timestampedNodes: ${nodes.filter(node => node.time).length}`, `nodes: ${nodes.length}`], timeCoverage))
+  if (routeCoverage !== 'complete') findings.push(finding('route-coverage', 'warning', nodes.length - routed, [`routedNodes: ${routed}`, `nodes: ${nodes.length}`], routeCoverage))
   const base: SnapshotArchive['base'] = {
     schema: 'dsh-token-usage/snapshot-v1', sessionId, generatedAt: new Date(now).toISOString(),
-    revision: createHash('sha256').update(JSON.stringify({ nodes, totals, thresholds, count: events.length, seq: events.at(-1)!.seq })).digest('hex'),
+    revision: createHash('sha256').update(JSON.stringify({ ruleset: '0.5.0', nodes, totals, thresholds, count: events.length, seq: events.at(-1)!.seq })).digest('hex'),
     firstSeq: events[0]!.seq, lastSeq: events.at(-1)!.seq, eventCount: events.length,
     totals, reconciliation: bucketKeys.every(key => totals.delta[key] === 0) ? 'matched' : 'mismatch',
-    findings: diagnose(totals, thresholds), nodeCount: nodes.length, provisionalNodeCount: nodes.filter(node => node.finality !== 'authoritative').length, routes: [...grouped.values()],
+    timeCoverage, routeCoverage, findings: withNodeEvidence(findings, nodes), nodeCount: nodes.length, provisionalNodeCount: nodes.filter(node => node.finality !== 'authoritative').length, routes: [...grouped.values()],
   }
   pageSnapshot({ base, nodes }, 0)
   return { base, nodes }

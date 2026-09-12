@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const SCHEMA = 'dsh-token-usage/workbench-v1' as const
+export const SCHEMA = 'dsh-token-usage/workbench-v2' as const
 export const MAX_STATE_CHARS = 3_000_000
 export const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 export const identifier = z.string().min(1).max(256)
@@ -70,6 +70,9 @@ export const findingSchema = z.object({
   ruleId: identifier, ruleVersion: z.literal('1'), severity: z.enum(['info', 'warning', 'error']),
   evidence: z.array(z.string().max(200)).max(16), value: z.number().finite(), threshold: z.number().finite().optional(),
   coverage: z.enum(['complete', 'partial', 'unavailable']),
+  scope: z.enum(['session', 'project', 'global']).default('session'),
+  suggestedAction: z.object({ zh: z.string().min(1).max(400), en: z.string().min(1).max(600) }).strict().default({ zh: '查看证据并确认数据覆盖。', en: 'Inspect the evidence and verify data coverage.' }),
+  nodes: z.array(z.object({ id: identifier, seq: integer, index: integer }).strict()).max(16).default([]),
 }).strict()
 export const nodeSchema = z.object({
   id: identifier, seq: integer, kind: z.enum(['model', 'compaction']),
@@ -90,6 +93,8 @@ export const snapshotSchema = z.object({
   totals: totalsSchema, reconciliation: z.enum(['matched', 'mismatch']),
   findings: z.array(findingSchema).max(32), nodes: z.array(nodeSchema).max(200),
   nodeCount: integer, provisionalNodeCount: integer, offset: integer, nextOffset: integer.nullable(),
+  timeCoverage: z.enum(['complete', 'partial', 'unavailable']).default('unavailable'),
+  routeCoverage: z.enum(['complete', 'partial', 'unavailable']).default('unavailable'),
   routes: z.array(z.object({ provider: identifier, model: identifier, usage: bucketsSchema }).strict()).max(512),
 }).strict()
 export type LocalSnapshot = z.infer<typeof snapshotSchema>
@@ -101,7 +106,9 @@ export const experimentRunSchema = z.object({
   configLabel: z.string().trim().min(1).max(80), accepted: z.boolean().nullable(),
   generatedAt: stamp, revision: identifier, usage: bucketsSchema, retries: integer,
   durationMs: integer, complete: z.boolean(),
-  costs: z.array(z.object({ currency: z.enum(['USD', 'CNY']), amount: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER), complete: z.boolean(), basis: z.string().max(200) }).strict()).max(2),
+  requests: integer.optional(), retryUsage: bucketsSchema.optional(), toolCalls: integer.optional(), toolErrors: integer.optional(),
+  acceptanceAt: stamp.optional(),
+  costs: z.array(z.object({ currency: z.enum(['USD', 'CNY']), amount: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER), complete: z.boolean(), basis: z.string().max(200), fingerprint: z.string().max(128).optional() }).strict()).max(2),
 }).strict()
 export type ExperimentRun = z.infer<typeof experimentRunSchema>
 export const configurationSchema = z.object({
@@ -122,18 +129,34 @@ export function emptyConfiguration(): Configuration {
   return { cards: [], projects: [], assignments: [], experiments: [], thresholds: { retryShare: 0.1, compactionShare: 0.2 }, moneyBudgets: [], shareSummary: false }
 }
 export const ledgerEntrySchema = z.object({
+  requestKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   id: identifier, routeId: z.string().regex(/^[a-f0-9]{32}$/),
   kind: z.enum(['usage-analysis', 'trajectory-analysis']), startedAt: stamp, endedAt: stamp.optional(),
   status: z.enum(['running', 'completed', 'failed', 'cancelled', 'interrupted']),
   usage: bucketsSchema.nullable(), finality: z.enum(['unknown', 'provisional', 'authoritative']),
 }).strict()
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>
+export const priceRevisionSchema = z.object({
+  revision: integer, at: stamp, reason: z.enum(['initial', 'edit', 'rollback']),
+  digest: z.string().regex(/^[a-f0-9]{64}$/), cards: cardsSchema,
+}).strict()
+export const requestKeySchema = z.object({ key: z.string().regex(/^[a-f0-9]{64}$/), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), at: stamp }).strict()
 export const stateSchema = z.object({
   schema: z.literal(SCHEMA), revision: integer, config: configurationSchema,
   ledger: z.array(ledgerEntrySchema).max(512), evictedEntries: integer,
+  priceRevision: integer.default(0), priceHistory: z.array(priceRevisionSchema).max(16).default([]), evictedPriceRevisions: integer.default(0),
+  requestKeys: z.array(requestKeySchema).max(2048).default([]), evictedRequestKeys: integer.default(0),
+  ledgerStartedAt: stamp.nullable().default(null), ledgerClearedAt: stamp.nullable().default(null),
 }).strict()
 export type WorkbenchState = z.infer<typeof stateSchema>
-export function emptyState(): WorkbenchState { return { schema: SCHEMA, revision: 0, config: emptyConfiguration(), ledger: [], evictedEntries: 0 } }
+export function emptyState(): WorkbenchState { return stateSchema.parse({ schema: SCHEMA, revision: 0, config: emptyConfiguration(), ledger: [], evictedEntries: 0 }) }
+/** Legacy state is upgraded without deleting records or guessing prices. */
+export function migrateState(value: unknown): WorkbenchState {
+  if (typeof value === 'object' && value !== null && 'schema' in value && value.schema === 'dsh-token-usage/workbench-v1') {
+    return boundedParse(stateSchema, { ...value, schema: SCHEMA })
+  }
+  return boundedParse(stateSchema, value)
+}
 export function boundedParse<S extends z.ZodType>(schema: S, value: unknown, maxChars = MAX_STATE_CHARS): z.output<S> {
   if (value === undefined || JSON.stringify(value).length > maxChars) throw new Error('Payload exceeds the workbench limit')
   return schema.parse(value)

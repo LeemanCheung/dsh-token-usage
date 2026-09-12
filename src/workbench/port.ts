@@ -9,7 +9,7 @@ export const quoteSchema = z.object({
   verifiedAt: z.array(z.string().max(64)).max(128), unavailable: z.array(z.string().max(256)).max(128),
 }).strict().refine(value => value.amount === null || value.status === 'complete')
 export const receiptSchema = z.object({
-  estimate: quoteSchema, revision: identifier, priceRevision: integer,
+  estimate: quoteSchema, revision: identifier, priceRevision: integer, priceDigest: z.string().max(128).optional(),
   largestPricedNode: z.object({ id: identifier, amount: z.number().finite().nonnegative() }).strict().nullable(),
 }).strict()
 export type ReceiptCost = z.infer<typeof receiptSchema>
@@ -18,6 +18,7 @@ export interface WorkbenchPort {
   save(revision: number, config: Configuration, signal: AbortSignal): Promise<WorkbenchState>
   snapshot(sessionId: string, signal: AbortSignal, offset?: number, revision?: string): Promise<LocalSnapshot>
   receipt(sessionId: string, revision: string, currency: Quote['currency'], mode: 'historical-reference' | 'revaluation', at: string, signal: AbortSignal): Promise<ReceiptCost>
+  rollback(revision: number, targetPriceRevision: number, signal: AbortSignal): Promise<WorkbenchState>
   clear(signal: AbortSignal): Promise<WorkbenchState>
 }
 export function makeWorkbenchPort(call: (endpoint: string, payload: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>): WorkbenchPort {
@@ -40,6 +41,7 @@ export function makeWorkbenchPort(call: (endpoint: string, payload: Record<strin
       if (result.revision !== revision) throw new Error('Receipt revision does not match the snapshot')
       return result
     },
+    rollback: (revision, targetPriceRevision, signal) => request('workbench/price-rollback', { revision, targetPriceRevision, confirm: 'restore-price-revision' }, stateSchema, signal),
     clear: signal => request('workbench/ledger-clear', { confirm: 'clear-analysis-ledger' }, stateSchema, signal),
   }
 }

@@ -5,8 +5,18 @@ import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { createWorkbenchHost } from '../../src/workbench/host.ts'
 import { stateSchema } from '../../src/workbench/schema.ts'
-import { fixtureSessionId, insightFixture, workbenchEvents } from '../workbench.fixture.ts'
+import { fixtureSessionId, fixtureNow, insightFixture, workbenchEvents } from '../workbench.fixture.ts'
 
+// Stable synthetic clock; no real provider traffic or production session mutation.
+const NativeDate = Date
+let fixtureTime = fixtureNow - 86400000
+class FixtureDate extends NativeDate {
+  constructor(value?: string | number) { super(value === undefined ? fixtureTime : value) }
+  static now() { return fixtureTime }
+}
+globalThis.Date = FixtureDate as DateConstructor
+let eventOffset = 0
+const sessionEvents = () => workbenchEvents().map(event => ({ ...event, time: event.time + eventOffset }))
 const directory = resolve('test-results/workbench')
 await mkdir(directory, { recursive: true })
 const statePath = resolve(directory, 'fixture-state.json')
@@ -16,7 +26,7 @@ const settings = { get: () => ({ data }), update: async (patch: { data: string }
 } }
 const context = {
   settings: { register: () => settings }, logger: { warn: () => {} },
-  sessions: { get: (id: string) => id === fixtureSessionId ? { snapshotEvents: () => workbenchEvents() } : undefined },
+  sessions: { get: (id: string) => id === fixtureSessionId ? { snapshotEvents: sessionEvents } : undefined },
   sessionQuery: { readSession: async () => { throw new Error('Unknown fixture session') } },
 } as unknown as Context
 const host = createWorkbenchHost(context)
@@ -36,12 +46,13 @@ const server = createServer(async (req, res) => {
     let body = ''
     for await (const chunk of req) { body += chunk; if (body.length > 3_000_000) throw new Error('Fixture payload too large') }
     if (req.url?.startsWith('/rpc/')) { json(await host.handle(decodeURIComponent(req.url.slice(5)), body ? JSON.parse(body) : {}, lifecycle.signal)); return }
+    if (req.url === '/test/advance-session') { eventOffset += 60000; fixtureTime += 60000; json({ ok: true }); return }
     if (req.url === '/test/analysis') {
       const llm = { prepareCall: async () => ({ stream: async function* () { yield { type: 'usage', usage: { inputTokens: 7, outputTokens: 3 } }; yield { type: 'usage', usage: { inputTokens: 9, outputTokens: 5 } } } }) } as unknown as Context['llm']
       await host.track(llm, 'usage-analysis', { provider: 'fixture-provider', model: 'fixture-model' }, lifecycle.signal, async tracked => {
         const prepared = await (tracked.prepareCall as (...args: unknown[]) => Promise<{ stream(): AsyncIterable<unknown> }>)({})
         for await (const _chunk of prepared.stream()) { /* exercise the real tracker */ }
-      })
+      }, body && JSON.parse(body).requestId ? { requestId: String(JSON.parse(body).requestId), fingerprint: 'fixed synthetic analysis' } : undefined)
       json({ ok: true }); return
     }
     if (req.url === '/test/concurrent-edit') {

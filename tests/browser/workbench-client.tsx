@@ -1,3 +1,4 @@
+import { numericOutput } from '../../src/workbench/weekly.ts'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { WorkbenchApp } from '../../src/client/workbench/App.tsx'
@@ -13,5 +14,5 @@ const port = makeWorkbenchPort(async (endpoint, payload, signal) => {
   return result.value
 })
 const sessions = await (await fetch('/fixture')).json() as InsightSession[]
-installSummaryBridge(window, port, () => sessions)
+installSummaryBridge(window, port, () => sessions, () => Date.now(), () => numericOutput({ status: 'ready', allTokensPerSecond: 42 }))
 createRoot(document.getElementById('root')!).render(<StrictMode><WorkbenchApp port={port} sessions={sessions} chinese={new URLSearchParams(location.search).get('lang') === 'zh'}/></StrictMode>)

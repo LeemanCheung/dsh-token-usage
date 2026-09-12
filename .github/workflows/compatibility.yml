@@ -1,0 +1,96 @@
+name: Advisory DSH compatibility
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dsh_ref:
+        description: 'Additional upstream commit, tag or branch (advisory only)'
+        required: false
+        default: c291e7961a515f6d7af9304e7fd1d257929aef26
+permissions:
+  contents: read
+concurrency:
+  group: advisory-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  advisory:
+    name: Additional upstream probe (not the pinned release gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      PROBE_REF: ${{ inputs.dsh_ref || 'c291e7961a515f6d7af9304e7fd1d257929aef26' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Resolve and build additional upstream
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/compatibility
+          [[ "$PROBE_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] || { echo 'Invalid upstream ref'; exit 1; }
+          harness="$RUNNER_TEMP/deepseek-harness"
+          git init "$harness"
+          git -C "$harness" remote add origin https://github.com/deepseek-ai/deepseek-harness.git
+          git -C "$harness" fetch --depth 1 origin "$PROBE_REF"
+          git -C "$harness" checkout --detach FETCH_HEAD
+          git -C "$harness" rev-parse HEAD > test-results/compatibility/upstream-sha.txt
+          node -v > test-results/compatibility/node-version.txt
+          manager=$(node -e 'const p=require(process.argv[1]);if(!/^pnpm@[0-9]+\.[0-9]+\.[0-9]+$/.test(p.packageManager))throw Error("Unsupported package manager");console.log(p.packageManager)' "$harness/package.json")
+          corepack enable
+          corepack prepare "$manager" --activate
+          pnpm --dir "$harness" install --frozen-lockfile --ignore-scripts 2>&1 | tee test-results/compatibility/install.log
+          pnpm --dir "$harness" run build:lib 2>&1 | tee test-results/compatibility/upstream-build.log
+          ln -sfn "$harness" "$GITHUB_WORKSPACE/../deepseek-harness"
+          node scripts/link-dsh-workspace.mjs "$harness" "$GITHUB_WORKSPACE/node_modules"
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Additional upstream typecheck
+        id: types
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck 2>&1 | tee test-results/compatibility/typecheck.log
+      - name: Additional upstream regression tests
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee test-results/compatibility/tests.log
+      - name: Additional upstream build
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build 2>&1 | tee test-results/compatibility/plugin-build.log
+      - name: Record advisory outcomes without changing declared support
+        if: always()
+        env:
+          PREPARE_RESULT: ${{ steps.prepare.outcome }}
+          TYPE_RESULT: ${{ steps.types.outcome }}
+          TEST_RESULT: ${{ steps.tests.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+        run: |
+          mkdir -p test-results/compatibility
+          node --input-type=module <<'NODE'
+          import {existsSync,readFileSync,writeFileSync,appendFileSync} from 'node:fs';
+          const path='test-results/compatibility/upstream-sha.txt';
+          const results={schema:'dsh-token-usage/compatibility-v1',advisory:true,pluginCommit:process.env.GITHUB_SHA,requestedRef:process.env.PROBE_REF,resolvedCommit:existsSync(path)?readFileSync(path,'utf8').trim():null,prepare:process.env.PREPARE_RESULT,types:process.env.TYPE_RESULT,tests:process.env.TEST_RESULT,build:process.env.BUILD_RESULT};
+          results.passed=[results.prepare,results.types,results.tests,results.build].every(value=>value==='success');
+          writeFileSync('test-results/compatibility/result.json',JSON.stringify(results,null,2));
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,`## Additional upstream compatibility (advisory)\n\n\`\`\`json\n${JSON.stringify(results,null,2)}\n\`\`\`\n\nThis probe does not replace pinned CI, change the support declaration, or verify a live provider. No generated files are committed by this workflow.\n`);
+          if(!results.passed) console.log('::warning::Additional upstream compatibility is NOT verified. Inspect the per-stage outcomes and logs.');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: advisory-compatibility-evidence
+          path: test-results/compatibility
+          retention-days: 14

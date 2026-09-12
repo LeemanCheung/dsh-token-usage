@@ -6,12 +6,15 @@ import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-llm'
 import { z } from 'zod'
-import { MAX_STATE_CHARS, boundedParse, bucketsSchema, configRequestSchema, emptyState, identifier, snapshotRequestSchema, stamp, stateSchema, type LedgerEntry, type WorkbenchState } from './schema.ts'
+import { MAX_STATE_CHARS, migrateState, boundedParse, bucketsSchema, configRequestSchema, emptyState, identifier, snapshotRequestSchema, stamp, stateSchema, type LedgerEntry, type WorkbenchState } from './schema.ts'
 import { buildSnapshot, pageSnapshot, type SnapshotArchive } from './snapshot.ts'
 import { add, zero, quote, sumQuotes, total, type Quote } from './prices.ts'
 
+import { ensurePriceHistory, revisePrices, priceDigest } from './price-history.ts'
+
 const storageSchema = settingsSchema.object({ data: settingsSchema.string().max(MAX_STATE_CHARS).default('') })
-const receiptRequest = z.object({ sessionId: identifier, revision: identifier, currency: z.enum(['USD', 'CNY']), mode: z.enum(['historical-reference', 'revaluation']), at: stamp }).strict()
+const receiptRequest = z.object({ sessionId: identifier, revision: identifier, currency: z.enum(['USD', 'CNY']), mode: z.enum(['historical-reference', 'revaluation']), at: stamp, priceRevision: z.number().int().nonnegative().optional() }).strict()
+const rollbackRequest = z.object({ revision: z.number().int().nonnegative(), targetPriceRevision: z.number().int().nonnegative(), confirm: z.literal('restore-price-revision') }).strict()
 const emptyRequest = z.object({}).strict()
 const clearRequest = z.object({ confirm: z.literal('clear-analysis-ledger') }).strict()
 const failure = (message: string) => ({ ok: false as const, error: { code: 'internal' as const, message, details: {} } })
@@ -23,7 +26,9 @@ export function createWorkbenchHost(ctx: Context) {
   let damaged = false, storageFailed = false, active = 0
   try {
     const raw = storage.get().data
-    state = raw ? boundedParse(stateSchema, JSON.parse(raw)) : emptyState()
+    state = raw ? migrateState(JSON.parse(raw)) : emptyState()
+    ensurePriceHistory(state)
+    state.ledgerStartedAt ??= state.ledger.map(entry => entry.startedAt).sort()[0] ?? null
     state.ledger = state.ledger.map(entry => entry.status === 'running' ? { ...entry, status: 'interrupted', endedAt: new Date().toISOString() } : entry)
   } catch { state = emptyState(); damaged = true }
   let queue: Promise<void> = Promise.resolve()
@@ -53,6 +58,7 @@ export function createWorkbenchHost(ctx: Context) {
   async function checkpoint(entry: LedgerEntry): Promise<void> {
     try {
       await mutate(draft => {
+        draft.ledgerStartedAt ??= entry.startedAt
         draft.ledger = draft.ledger.filter(value => value.id !== entry.id)
         draft.ledger.push(structuredClone(entry))
         draft.ledger.sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id))
@@ -67,8 +73,27 @@ export function createWorkbenchHost(ctx: Context) {
       ctx.logger.warn('token usage: auxiliary ledger could not be persisted; the model call was not blocked')
     }
   }
-  async function track<T>(service: Context['llm'], kind: LedgerEntry['kind'], route: { provider: string; model: string }, signal: AbortSignal, run: (llm: Context['llm']) => Promise<T>): Promise<T> {
+  async function track<T>(service: Context['llm'], kind: LedgerEntry['kind'], route: { provider: string; model: string }, signal: AbortSignal, run: (llm: Context['llm']) => Promise<T>, identity?: { requestId: string; fingerprint: string }): Promise<T> {
+    signal.throwIfAborted()
     const entry: LedgerEntry = { id: randomUUID(), routeId: createHash('sha256').update(JSON.stringify([route.provider, route.model])).digest('hex').slice(0, 32), kind, startedAt: new Date().toISOString(), status: 'running', usage: null, finality: 'unknown' }
+    if (identity) {
+      z.string().min(1).max(128).parse(identity.requestId)
+      const key = createHash('sha256').update(identity.requestId).digest('hex')
+      const fingerprint = createHash('sha256').update(JSON.stringify([kind, route, identity.fingerprint])).digest('hex')
+      // Reserve durably BEFORE calling the provider; duplicate/reconnected RPCs cannot bill twice.
+      await mutate(draft => {
+        signal.throwIfAborted()
+        const retained = draft.requestKeys.filter(item => Date.now() - Date.parse(item.at) < 30 * 86400000)
+        draft.evictedRequestKeys += draft.requestKeys.length - retained.length
+        draft.requestKeys = retained
+        const prior = retained.find(item => item.key === key) ?? (draft.ledger.some(item => item.requestKey === key) ? { fingerprint } : undefined)
+        if (prior) throw new Error(prior.fingerprint !== fingerprint ? 'Request id was reused with different analysis input.' : 'This analysis request was already recorded or is running. Inspect the ledger; explicitly start a new analysis to run again.')
+        draft.requestKeys.push({ key, fingerprint, at: entry.startedAt })
+        while (draft.requestKeys.length > 2048) { draft.requestKeys.shift(); draft.evictedRequestKeys++ }
+        draft.ledgerStartedAt ??= entry.startedAt
+      })
+      entry.requestKey = key
+    }
     active++
     let lastCheckpoint = 0, streamSequence = 0
     const streamUsage = new Map<number, NonNullable<LedgerEntry['usage']>>()
@@ -99,6 +124,7 @@ export function createWorkbenchHost(ctx: Context) {
       },
     })
     try {
+      signal.throwIfAborted()
       const value = await run(observed)
       entry.status = 'completed'
       if (entry.usage && unfinished.size === 0 && streamUsage.size === streamSequence) entry.finality = 'authoritative'
@@ -124,7 +150,19 @@ export function createWorkbenchHost(ctx: Context) {
           await mutate(draft => {
             signal.throwIfAborted()
             if (request.revision !== draft.revision) throw new Error('Settings changed in another window; refresh before saving')
+            revisePrices(draft, request.config.cards, 'edit')
             draft.config = request.config; draft.revision++
+          })
+          return { ok: true as const, value: structuredClone(state) }
+        }
+        case 'workbench/price-rollback': {
+          const request = boundedParse(rollbackRequest, payload, 2048)
+          await mutate(draft => {
+            signal.throwIfAborted()
+            if (request.revision !== draft.revision) throw new Error('Settings changed in another window; refresh before restoring prices')
+            const prior = draft.priceHistory.find(item => item.revision === request.targetPriceRevision)
+            if (!prior) throw new Error('Price revision has expired or does not exist')
+            revisePrices(draft, prior.cards, 'rollback'); draft.revision++
           })
           return { ok: true as const, value: structuredClone(state) }
         }
@@ -132,7 +170,7 @@ export function createWorkbenchHost(ctx: Context) {
           clearRequest.parse(payload)
           await mutate(draft => {
             if (active) throw new Error('Cannot clear the ledger while analysis is running')
-            draft.ledger = []; draft.evictedEntries = 0
+            draft.ledger = []; draft.evictedEntries = 0; draft.ledgerClearedAt = new Date().toISOString()
           })
           return { ok: true as const, value: structuredClone(state) }
         case 'workbench/snapshot': {
@@ -148,14 +186,17 @@ export function createWorkbenchHost(ctx: Context) {
         }
         case 'workbench/receipt-cost': {
           const request = boundedParse(receiptRequest, payload, 4096), archive = cached(request.sessionId, request.revision)
-          const estimates = archive.nodes.map(node => quote(request.mode === 'historical-reference' && !node.time ? [] : state.config.cards, node, node.usage, {
+          const priceVersion = request.priceRevision === undefined ? state.priceRevision : request.priceRevision
+          const book = state.priceHistory.find(item => item.revision === priceVersion)
+          if (!book) throw new Error('Requested price revision is no longer retained')
+          const estimates = archive.nodes.map(node => quote(request.mode === 'historical-reference' && !node.time ? [] : book.cards, node, node.usage, {
             currency: request.currency, mode: request.mode, at: request.mode === 'historical-reference' ? node.time ?? request.at : request.at,
             timingKnown: request.mode === 'revaluation', requestInputKnown: node.finality === 'authoritative',
           }))
           let estimate: Quote = sumQuotes(estimates, request.currency)
           if (archive.base.reconciliation !== 'matched') estimate = { ...estimate, totalTokens: total(archive.base.totals.usage), amount: null, upper: null, status: 'partial', unavailable: [...estimate.unavailable, 'token-reconciliation-mismatch'] }
           const known = estimates.map((estimate, index) => ({ id: archive.nodes[index]!.id, amount: estimate.amount })).filter((item): item is { id: string; amount: number } => item.amount !== null).sort((a, b) => b.amount - a.amount)
-          return { ok: true as const, value: { estimate, largestPricedNode: known[0] ?? null, revision: archive.base.revision, priceRevision: state.revision } }
+          return { ok: true as const, value: { estimate, largestPricedNode: known[0] ?? null, revision: archive.base.revision, priceRevision: priceVersion, priceDigest: priceDigest(book.cards) } }
         }
         default: return failure('Unknown workbench endpoint')
       }

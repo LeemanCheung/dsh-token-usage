@@ -51,7 +51,7 @@ export function apply(ctx: ClientContext): void {
     void budget.load()
     return () => { budget.dispose() }
   }, 'token usage: load persistent budget')
-  registerWorkbench(ctx, connection)
+  registerWorkbench(ctx, connection, throughput)
   const t = ctx.locale.bind(NS)
   const throughputFace = () => ({
     hooks: { throughput },
