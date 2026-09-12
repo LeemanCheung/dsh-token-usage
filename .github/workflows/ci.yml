@@ -48,23 +48,39 @@ jobs:
           node --check scripts/link-dsh-workspace.mjs
           node scripts/link-dsh-workspace.mjs "$harness" "$GITHUB_WORKSPACE/node_modules"
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+          mkdir -p test-results/workbench
 
       - name: Typecheck host and client
-        run: npm run typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck 2>&1 | tee test-results/workbench/typecheck.log
 
       - name: Run regression tests
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee test-results/workbench/unit-tests.log
+
+      - name: Browser workbench integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/run-workbench-e2e.sh 2>&1 | tee test-results/workbench/browser.log
 
       - name: Rebuild committed bundles
-        run: npm run build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build 2>&1 | tee test-results/workbench/build.log
 
       - name: Verify deterministic bundles
         shell: bash
         run: |
           set -euo pipefail
-          sha256sum lib/client.js lib/client.js.map lib/index.js > "$RUNNER_TEMP/dsh-token-usage-bundles.sha256"
+          sha256sum lib/client.js lib/client.js.map lib/index.js > test-results/workbench/bundle-sha256.txt
           npm run build
-          sha256sum --check "$RUNNER_TEMP/dsh-token-usage-bundles.sha256"
+          sha256sum --check test-results/workbench/bundle-sha256.txt
 
       - name: Verify package contents
         shell: bash
@@ -73,7 +89,7 @@ jobs:
           rm -rf dist
           mkdir -p dist
           npm pack --dry-run --json --pack-destination dist > dist/pack.json
-          cat dist/pack.json
+          cp dist/pack.json test-results/workbench/package-manifest.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs'
 
@@ -81,46 +97,35 @@ jobs:
           if (!Array.isArray(results) || results.length !== 1) {
             throw new Error(`Expected one npm pack result, received ${JSON.stringify(results)}`)
           }
-
           const files = results[0]?.files?.map((entry) => entry.path).sort()
-          if (!Array.isArray(files)) {
-            throw new Error('npm pack result did not include a files array')
-          }
-
+          if (!Array.isArray(files)) throw new Error('npm pack result did not include a files array')
           const required = [
-            'LICENSE',
-            'README.md',
+            'LICENSE', 'README.md', 'cordis.patch.yml', 'package.json',
             'assets/token-usage-ai-analysis.png',
             'assets/token-usage-budget.png',
             'assets/token-usage-insights.png',
             'assets/token-usage-overview.png',
             'assets/token-usage-trajectory-analysis.png',
-            'cordis.patch.yml',
-            'lib/client.js',
-            'lib/client.js.map',
-            'lib/index.js',
-            'package.json',
-            'src/client/index.ts',
-            'src/index.ts',
-            'src/types.ts',
+            'docs/compatibility-0.1.2-rc.1.md', 'docs/workbench.md',
+            'lib/client.js', 'lib/client.js.map', 'lib/index.js',
+            'src/client/index.ts', 'src/index.ts', 'src/types.ts',
+            'src/workbench/host.ts', 'src/workbench/schema.ts',
+            'src/client/workbench/App.tsx', 'src/client/workbench/register.tsx',
           ]
           for (const path of required) {
-            if (!files.includes(path)) {
-              throw new Error(`Missing required package file: ${path}`)
-            }
+            if (!files.includes(path)) throw new Error(`Missing required package file: ${path}`)
           }
-
-          const allowedExact = new Set(['LICENSE', 'README.md', 'cordis.patch.yml', 'package.json', 'docs/compatibility-0.1.2-rc.1.md'])
+          const allowedExact = new Set([
+            'LICENSE', 'README.md', 'cordis.patch.yml', 'package.json',
+            'docs/compatibility-0.1.2-rc.1.md', 'docs/workbench.md',
+          ])
           const unexpected = files.filter((path) => (
             !allowedExact.has(path)
             && !path.startsWith('assets/')
             && !path.startsWith('lib/')
             && !path.startsWith('src/')
           ))
-          if (unexpected.length > 0) {
-            throw new Error(`Unexpected package files: ${unexpected.join(', ')}`)
-          }
-
+          if (unexpected.length > 0) throw new Error(`Unexpected package files: ${unexpected.join(', ')}`)
           console.log(`Verified npm package contents (${files.length} files)`)
           NODE
 
@@ -130,3 +135,12 @@ jobs:
           set -euo pipefail
           git diff --check
           git diff --exit-code -- lib
+
+      - name: Upload workbench verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench-verification-evidence
+          path: test-results/workbench
+          if-no-files-found: ignore
+          retention-days: 14
