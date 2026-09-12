@@ -171,7 +171,7 @@ describe('attribution, projects and budgets', () => {
     expect(rollingMoney([insightFixture()], config, 'CNY', fixtureNow).status).toBe('unavailable')
   })
   it('neutralizes spreadsheet formula injection in identifiers', () => {
-    expect(csvCell('  =HYPERLINK("x")')).toStartWith('"\'')
+    expect(csvCell('  =HYPERLINK("x")').startsWith('"\'')).toBe(true)
     expect(changesCsv([insightFixture('=malicious')], 7, fixtureNow)).toContain('"\'=malicious"')
   })
 })

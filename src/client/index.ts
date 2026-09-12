@@ -16,6 +16,7 @@ import type {
   TrajectoryAnalysis,
 } from '../types.ts'
 import { TokenUsageSection } from './TokenUsageSection.tsx'
+import { registerWorkbench } from './workbench/register.tsx'
 import { AllSessionsThroughput, CurrentSessionThroughput } from './TokenThroughput.tsx'
 import { TrajectoryAnalysisAction } from './TrajectoryAnalysisAction.tsx'
 import { TokenUsageBudgetController } from './budget-controller.ts'
@@ -50,6 +51,7 @@ export function apply(ctx: ClientContext): void {
     void budget.load()
     return () => { budget.dispose() }
   }, 'token usage: load persistent budget')
+  registerWorkbench(ctx, connection)
   const t = ctx.locale.bind(NS)
   const throughputFace = () => ({
     hooks: { throughput },

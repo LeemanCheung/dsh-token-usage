@@ -231,7 +231,7 @@ function safeEventRow(
 }
 
 /** Compute provider usage spans, reconciliation, and a bounded metadata-only timeline. */
-export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTrajectory {
+export function prepareTrajectory(events: readonly SessionEvent[], localRoutes?: Map<string, { provider: string; model: string }>): PreparedTrajectory {
   const firstTime = events[0]?.time ?? 0
   const attempts = new Map<string, number>()
   const assistantRequestIds = new Set<string>()
@@ -246,6 +246,7 @@ export function prepareTrajectory(events: readonly SessionEvent[]): PreparedTraj
     if (existing !== undefined) return existing
     const alias = { provider: 'route', model: `route-${routeAliases.size + 1}` }
     routeAliases.set(key, alias)
+    localRoutes?.set(alias.model, { ...value })
     return alias
   }
   let turnCount = 0

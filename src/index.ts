@@ -19,6 +19,7 @@ import { tokenUsageRecorderProjectionDefinition } from './projection.ts'
 import { TOKEN_USAGE_RPC_CHANNEL, TOKEN_USAGE_RPC_ENDPOINT } from './rpc.ts'
 import type { AnalysisProgressReporter, AnalysisProgressUpdate } from './analysis-progress.ts'
 import { analyzeTrajectory } from './trajectory-analysis.ts'
+import { createWorkbenchHost } from './workbench/host.ts'
 import { analyzeTokenUsage } from './usage-analysis.ts'
 import type {
   DailyTokenUsageRecord,
@@ -394,6 +395,8 @@ interface ActiveAnalysisProgress {
 /** Expose persistent preferences and explicit configured-model trajectory analysis to the local Web client. */
 function installRpc(ctx: Context): void {
   const budget = ctx.settings.register(BUDGET_NAMESPACE, BudgetSettingsSchema)
+  let workbench: ReturnType<typeof createWorkbenchHost> | undefined
+  const getWorkbench = () => workbench ??= createWorkbenchHost(ctx)
   const activeProgress = new Map<string, ActiveAnalysisProgress>()
   const withProgress = async <T>(
     progressId: string | undefined,
@@ -446,6 +449,7 @@ function installRpc(ctx: Context): void {
     const lifecycle = new AbortController()
     const dispose = ctx.connection.rpc.handle(TOKEN_USAGE_RPC_CHANNEL, async (endpoint, payload, signal) => {
       const operationSignal = AbortSignal.any([signal, lifecycle.signal])
+      if (endpoint.startsWith('workbench/')) return getWorkbench().handle(endpoint, payload, operationSignal)
       switch (endpoint) {
       case TOKEN_USAGE_RPC_ENDPOINT.budgetRead:
         return { ok: true, value: budget.get() }
@@ -499,14 +503,14 @@ function installRpc(ctx: Context): void {
         try {
           return {
             ok: true,
-            value: await withProgress(request.progressId, report => analyzeTokenUsage(
-              { llm: runtime.llm },
+            value: await withProgress(request.progressId, report => getWorkbench().track(runtime.llm, 'usage-analysis', request.model, analysisSignal, llm => analyzeTokenUsage(
+              { llm },
               request.input,
               request.model,
               request.language,
               analysisSignal,
               report,
-            )),
+            ))),
           }
         } catch (error) {
           if (analysisSignal.aborted) throw error
@@ -531,15 +535,15 @@ function installRpc(ctx: Context): void {
                 analysisSignal.throwIfAborted()
               }
               if (events.length === 0) throw new Error('This session has no trajectory events to analyze.')
-              return analyzeTrajectory(
-                { llm: runtime.llm },
+              return getWorkbench().track(runtime.llm, 'trajectory-analysis', request.model, analysisSignal, llm => analyzeTrajectory(
+                { llm },
                 request.sessionId,
                 events,
                 request.model,
                 request.language,
                 analysisSignal,
                 report,
-              )
+              ))
             }),
           }
         } catch (error) {
@@ -553,6 +557,7 @@ function installRpc(ctx: Context): void {
     })
     return async () => {
       lifecycle.abort(new Error('token usage plugin disposed'))
+      workbench?.dispose()
       await dispose()
     }
   }, 'token usage: private RPC')

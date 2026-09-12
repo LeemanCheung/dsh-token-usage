@@ -5,7 +5,7 @@ import { changesCsv, moneyBudgetStatus, receiptDocument, receiptMarkdown, rollin
 import { total, type Quote } from '../../workbench/prices.ts'
 import type { ReceiptCost, WorkbenchPort } from '../../workbench/port.ts'
 import { Experiments, Field, JsonDetails, PriceEditor, Scenario, download, number, type Text } from './components.tsx'
-import './styles.css'
+import { workbenchCss } from './styles.ts'
 
 type View = 'inspect' | 'prices' | 'ledger' | 'changes' | 'projects' | 'scenario' | 'experiments' | 'share'
 const views: [View, string, string][] = [['inspect', '本地体检 / 收据', 'Inspection / receipt'], ['prices', '价卡', 'Price cards'], ['ledger', '辅助分析账本', 'Analysis ledger'], ['changes', '变化归因', 'Changes'], ['projects', '项目与预算', 'Projects / budgets'], ['scenario', '情景试算', 'Scenarios'], ['experiments', '优化实验室', 'Experiments'], ['share', '周报与联动', 'Weekly / integration']]
@@ -78,11 +78,11 @@ export function WorkbenchApp({ port, sessions, chinese = false }: { port: Workbe
   const controller = useRef<AbortController | null>(null), alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false; controller.current?.abort() } }, [])
   const run = async <T,>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
-    if (controller.current) throw new Error(t('已有操作运行中。', 'Another operation is running.'))
+    if (controller.current && !controller.current.signal.aborted) throw new Error(t('已有操作运行中。', 'Another operation is running.'))
     const current = new AbortController(); controller.current = current; setBusy(true); setError(''); setNotice('')
     try { const result = await operation(current.signal); current.signal.throwIfAborted(); return result }
     catch (cause) { if (alive.current && !current.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause)); throw cause }
-    finally { if (controller.current === current) controller.current = null; if (alive.current) setBusy(false) }
+    finally { if (controller.current === current) { controller.current = null; if (alive.current) setBusy(false) } }
   }
   const refresh = () => run(async signal => { const result = await port.read(signal); signal.throwIfAborted(); if (alive.current) setState(result) })
   useEffect(() => { void refresh().catch(() => {}); return () => controller.current?.abort() }, [port])
@@ -92,7 +92,7 @@ export function WorkbenchApp({ port, sessions, chinese = false }: { port: Workbe
     if (!state) throw new Error('Workbench has not loaded')
     const next = configurationSchema.parse(config), result = await port.save(state.revision, next, signal)
     signal.throwIfAborted(); if (!alive.current) return
-    if (JSON.stringify(next.thresholds) !== JSON.stringify(state.config.thresholds)) setSnapshot(undefined)
+    if (next.thresholds.retryShare !== state.config.thresholds.retryShare || next.thresholds.compactionShare !== state.config.thresholds.compactionShare) setSnapshot(undefined)
     setState(result); setCosts([]); setNotice(t('已保存到本地 Host。', 'Saved to the local Host.'))
   })
   const inspect = (offset = 0) => run(async signal => {
@@ -114,10 +114,10 @@ export function WorkbenchApp({ port, sessions, chinese = false }: { port: Workbe
   const usage = useMemo(() => sumSessionUsage(filtered), [filtered])
   const weekly = useMemo(() => shareSummary(filtered), [filtered])
   const validCosts = costs.filter(cost => cost.revision === snapshot?.revision && cost.priceRevision === state?.revision && cost.estimate.mode === mode)
-  useEffect(() => { if (config?.shareSummary) window.dispatchEvent(new CustomEvent('dsh-token-usage:summary', { detail: shareSummary(sessions) })) }, [config?.shareSummary, sessions])
+  useEffect(() => { if (config?.shareSummary) window.dispatchEvent(new Event('dsh-token-usage:summary-request')) }, [config?.shareSummary, sessions])
   const csv = () => download('token-changes.csv', '\uFEFF' + changesCsv(filtered, days), 'text/csv;charset=utf-8')
   const status = (text: string) => <span className="wbPill">{text}</span>
-  return <main className="wbRoot" lang={chinese ? 'zh-CN' : 'en'}>
+  return <main className="wbRoot" lang={chinese ? 'zh-CN' : 'en'}><style>{workbenchCss}</style>
     <header className="wbHeader"><div><span className="wbEyebrow">LOCAL USAGE · 0.4</span><h1>{t('用量工作台', 'Usage workbench')}</h1><p>{t('从一次调用，到可核对的优化决策。', 'From individual calls to auditable optimization decisions.')}</p></div><div className="wbActions"><button disabled={busy} onClick={() => void refresh().catch(() => {})}>{t('刷新配置与账本', 'Refresh settings and ledger')}</button>{busy && <button onClick={() => controller.current?.abort()}>{t('取消当前读取', 'Cancel current operation')}</button>}</div></header>
     <div role="status" aria-live="polite">{busy ? t('正在读取或保存…', 'Reading or saving…') : notice}</div>{error && <div role="alert" className="wbError">{error}<p>{t('可刷新后重试；现有数据不会被自动覆盖。', 'Refresh and retry; existing data is not automatically overwritten.')}</p></div>}
     {!state ? <p>{t('等待本地 Host 配置。', 'Waiting for local Host configuration.')}</p> : <>

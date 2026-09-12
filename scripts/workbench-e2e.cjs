@@ -50,7 +50,7 @@ const download = async (name, filename) => {
     for (const [key, value] of Object.entries({ uncachedInputTokens: 1, outputTokens: 2, cacheReadTokens: 0.1, cacheWriteTokens: 1.25 })) await field(`${key} / 1M`).fill(String(value))
     await button('Save price card').click(); await idle()
     assert.equal((await rpc('workbench/read')).config.cards.length, 1)
-    await nav('Inspection / receipt'); await field('Pricing basis').selectOption('revaluation')
+    await nav('Inspection / receipt'); await expect(page.getByRole('heading', { name: 'Usage receipt', exact: true })).toBeVisible(); await field('Pricing basis').selectOption('revaluation')
     await button('Price receipt').click(); await idle()
     await expect(page.locator('.wbQuote')).toHaveCount(2)
     const receipt = JSON.parse(await download('Export receipt JSON', 'receipt-anonymized.json'))
@@ -89,7 +89,7 @@ const download = async (name, filename) => {
   })
   await step('Cache scenario conserves usage and performs no model analysis', async () => {
     await nav('Scenarios')
-    await field('Uncached input hypothetically moved to cache reads').fill('0.5')
+    const slider = page.getByRole('slider'); await slider.press('Home'); for (let i = 0; i < 10; i++) await slider.press('ArrowRight'); await expect(slider).toHaveValue('0.5')
     await expect(page.getByText(/Scenario: USD/)).toBeVisible()
     assert.equal((await rpc('workbench/read')).ledger.length, 0)
     await page.screenshot({ path: path.join(output, 'desktop-scenario.png'), fullPage: true })
@@ -127,16 +127,16 @@ const download = async (name, filename) => {
     assert.ok(!(await download('Export weekly SVG', 'weekly.svg')).includes('PRIVATE TITLE'))
     await expect(field('Allow plugins in this page to read the numeric summary (off by default)')).not.toBeChecked()
     await page.evaluate(() => { window.receivedSummaries = []; window.addEventListener('dsh-token-usage:summary', event => window.receivedSummaries.push(event.detail)) })
-    await field('Allow plugins in this page to read the numeric summary (off by default)').check(); await idle()
+    await field('Allow plugins in this page to read the numeric summary (off by default)').click(); await idle(); await expect(field('Allow plugins in this page to read the numeric summary (off by default)')).toBeChecked()
     await expect.poll(() => page.evaluate(() => window.receivedSummaries.length)).toBeGreaterThan(0)
     const payload = await page.evaluate(() => window.receivedSummaries.at(-1))
     assert.ok(!JSON.stringify(payload).includes('PRIVATE TITLE'))
-    await field('Allow plugins in this page to read the numeric summary (off by default)').uncheck(); await idle()
+    await field('Allow plugins in this page to read the numeric summary (off by default)').click(); await idle(); await expect(field('Allow plugins in this page to read the numeric summary (off by default)')).not.toBeChecked()
     assert.equal((await rpc('workbench/read')).config.shareSummary, false)
   })
   await step('Concurrent configuration edits are rejected without overwriting newer settings', async () => {
     await page.request.post(`${base}/test/concurrent-edit`)
-    await field('Allow plugins in this page to read the numeric summary (off by default)').check()
+    await field('Allow plugins in this page to read the numeric summary (off by default)').click()
     await expect(page.getByRole('alert')).toContainText('changed in another window')
     assert.equal((await rpc('workbench/read')).config.shareSummary, false)
     await button('Refresh settings and ledger').click(); await idle()
@@ -152,6 +152,7 @@ const download = async (name, filename) => {
   assert.deepEqual(errors, [], `Browser runtime errors: ${errors.join('; ')}`)
 })().catch(async error => {
   console.error(error)
+  if (page) console.error('VISIBLE FIXTURE UI:', (await page.locator('body').innerText().catch(() => '')).slice(-8000))
   if (page) { await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {}); await fs.writeFile(path.join(output, 'failure.html'), await page.content().catch(() => '')).catch(() => {}) }
   process.exitCode = 1
 }).finally(async () => {

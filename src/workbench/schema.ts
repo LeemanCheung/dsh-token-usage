@@ -89,7 +89,7 @@ export const snapshotSchema = z.object({
   revision: identifier, firstSeq: integer, lastSeq: integer, eventCount: integer,
   totals: totalsSchema, reconciliation: z.enum(['matched', 'mismatch']),
   findings: z.array(findingSchema).max(32), nodes: z.array(nodeSchema).max(200),
-  nodeCount: integer, offset: integer, nextOffset: integer.nullable(),
+  nodeCount: integer, provisionalNodeCount: integer, offset: integer, nextOffset: integer.nullable(),
   routes: z.array(z.object({ provider: identifier, model: identifier, usage: bucketsSchema }).strict()).max(512),
 }).strict()
 export type LocalSnapshot = z.infer<typeof snapshotSchema>
@@ -134,9 +134,9 @@ export const stateSchema = z.object({
 }).strict()
 export type WorkbenchState = z.infer<typeof stateSchema>
 export function emptyState(): WorkbenchState { return { schema: SCHEMA, revision: 0, config: emptyConfiguration(), ledger: [], evictedEntries: 0 } }
-export function boundedParse<T>(schema: z.ZodType<T>, value: unknown, maxChars = MAX_STATE_CHARS): T {
-  if (JSON.stringify(value).length > maxChars) throw new Error('Payload exceeds the workbench limit')
+export function boundedParse<S extends z.ZodType>(schema: S, value: unknown, maxChars = MAX_STATE_CHARS): z.output<S> {
+  if (value === undefined || JSON.stringify(value).length > maxChars) throw new Error('Payload exceeds the workbench limit')
   return schema.parse(value)
 }
-export const snapshotRequestSchema = z.object({ sessionId: identifier, offset: integer.max(100000).default(0), revision: identifier.optional() }).strict()
+export const snapshotRequestSchema = z.object({ sessionId: identifier, offset: integer.max(200000).default(0), revision: identifier.optional() }).strict()
 export const configRequestSchema = z.object({ revision: integer, config: configurationSchema }).strict()

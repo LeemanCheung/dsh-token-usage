@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-llm'
 import { z } from 'zod'
 import { MAX_STATE_CHARS, boundedParse, bucketsSchema, configRequestSchema, emptyState, identifier, snapshotRequestSchema, stamp, stateSchema, type LedgerEntry, type WorkbenchState } from './schema.ts'
 import { buildSnapshot, pageSnapshot, type SnapshotArchive } from './snapshot.ts'
-import { quote, sumQuotes, total, type Quote } from './prices.ts'
+import { add, zero, quote, sumQuotes, total, type Quote } from './prices.ts'
 
 const storageSchema = settingsSchema.object({ data: settingsSchema.string().max(MAX_STATE_CHARS).default('') })
 const receiptRequest = z.object({ sessionId: identifier, revision: identifier, currency: z.enum(['USD', 'CNY']), mode: z.enum(['historical-reference', 'revaluation']), at: stamp }).strict()
@@ -70,23 +70,28 @@ export function createWorkbenchHost(ctx: Context) {
   async function track<T>(service: Context['llm'], kind: LedgerEntry['kind'], route: { provider: string; model: string }, signal: AbortSignal, run: (llm: Context['llm']) => Promise<T>): Promise<T> {
     const entry: LedgerEntry = { id: randomUUID(), routeId: createHash('sha256').update(JSON.stringify([route.provider, route.model])).digest('hex').slice(0, 32), kind, startedAt: new Date().toISOString(), status: 'running', usage: null, finality: 'unknown' }
     active++
-    let lastCheckpoint = 0
+    let lastCheckpoint = 0, streamSequence = 0
+    const streamUsage = new Map<number, NonNullable<LedgerEntry['usage']>>()
+    const unfinished = new Set<number>()
     await checkpoint(entry)
     const observed = new Proxy(service, {
       get(target, property, receiver) {
         if (property === 'prepareCall') return async (...args: Parameters<typeof service.prepareCall>) => {
           const prepared = await service.prepareCall(...args)
           return { ...prepared, stream: async function* (...streamArgs: Parameters<typeof prepared.stream>) {
+            const streamId = ++streamSequence
+            unfinished.add(streamId)
             for await (const chunk of prepared.stream(...streamArgs)) {
               if (chunk.type === 'usage') {
                 const value = bucketsSchema.safeParse({ uncachedInputTokens: chunk.usage.inputTokens, outputTokens: chunk.usage.outputTokens, cacheReadTokens: chunk.usage.cacheReadTokens ?? 0, cacheWriteTokens: chunk.usage.cacheWriteTokens ?? 0 })
                 if (value.success) {
-                  entry.usage = value.data; entry.finality = 'provisional'
+                  streamUsage.set(streamId, value.data); entry.usage = [...streamUsage.values()].reduce((sum, usage) => add(sum, usage), zero()); entry.finality = 'provisional'
                   if (Date.now() - lastCheckpoint >= 1000) { lastCheckpoint = Date.now(); await checkpoint(entry) }
                 }
               }
               yield chunk
             }
+            unfinished.delete(streamId)
           } }
         }
         const value = Reflect.get(target, property, receiver)
@@ -96,7 +101,7 @@ export function createWorkbenchHost(ctx: Context) {
     try {
       const value = await run(observed)
       entry.status = 'completed'
-      if (entry.usage) entry.finality = 'authoritative'
+      if (entry.usage && unfinished.size === 0 && streamUsage.size === streamSequence) entry.finality = 'authoritative'
       return value
     } catch (error) {
       entry.status = signal.aborted ? 'cancelled' : 'failed'
@@ -143,7 +148,7 @@ export function createWorkbenchHost(ctx: Context) {
         }
         case 'workbench/receipt-cost': {
           const request = boundedParse(receiptRequest, payload, 4096), archive = cached(request.sessionId, request.revision)
-          const estimates = archive.nodes.map(node => quote(state.config.cards, node, node.usage, {
+          const estimates = archive.nodes.map(node => quote(request.mode === 'historical-reference' && !node.time ? [] : state.config.cards, node, node.usage, {
             currency: request.currency, mode: request.mode, at: request.mode === 'historical-reference' ? node.time ?? request.at : request.at,
             timingKnown: request.mode === 'revaluation', requestInputKnown: node.finality === 'authoritative',
           }))

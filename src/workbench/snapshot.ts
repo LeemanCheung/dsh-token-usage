@@ -22,7 +22,7 @@ export function buildSnapshot(sessionId: string, events: readonly SessionEvent[]
   if (events.length > 200000) throw new Error('Session exceeds the bounded 200,000-event inspection limit')
   const routes = new Map<string, { provider: string; model: string }>()
   const { metrics } = prepareTrajectory(events, routes)
-  const times = new Map(events.map(event => [event.seq, event.time]))
+  const times = new Map<number, number>(events.map(event => [event.seq, event.time]))
   const nodes = metrics.spans.map(span => ({
     id: span.id, seq: span.seq, kind: span.kind, status: span.status, finality: span.finality,
     ...(routes.get(span.model) ?? { provider: 'unknown', model: 'unknown' }), usage: { ...span.usage },
@@ -57,7 +57,7 @@ export function buildSnapshot(sessionId: string, events: readonly SessionEvent[]
     revision: createHash('sha256').update(JSON.stringify({ nodes, totals, thresholds, count: events.length, seq: events.at(-1)!.seq })).digest('hex'),
     firstSeq: events[0]!.seq, lastSeq: events.at(-1)!.seq, eventCount: events.length,
     totals, reconciliation: bucketKeys.every(key => totals.delta[key] === 0) ? 'matched' : 'mismatch',
-    findings: diagnose(totals, thresholds), nodeCount: nodes.length, routes: [...grouped.values()],
+    findings: diagnose(totals, thresholds), nodeCount: nodes.length, provisionalNodeCount: nodes.filter(node => node.finality !== 'authoritative').length, routes: [...grouped.values()],
   }
   pageSnapshot({ base, nodes }, 0)
   return { base, nodes }

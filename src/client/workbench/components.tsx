@@ -1,3 +1,4 @@
+import { Children, cloneElement, isValidElement, useId } from 'react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { bucketKeys, cardsSchema, configurationSchema, experimentRunSchema, rateCardSchema, type Configuration, type ExperimentRun, type LocalSnapshot, type RateCard } from '../../workbench/schema.ts'
 import { experimentComparison } from '../../workbench/insights.ts'
@@ -11,7 +12,13 @@ export function download(filename: string, content: string, type: string): void 
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-export function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="wbField"><span>{label}</span>{children}</label> }
+export function Field({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId()
+  return <label className="wbField"><span id={id}>{label}</span>{Children.map(children, child =>
+    isValidElement<{ 'aria-labelledby'?: string }>(child) && typeof child.type === 'string' && ['input', 'select', 'textarea'].includes(child.type)
+      ? cloneElement(child, { 'aria-labelledby': id }) : child
+  )}</label>
+}
 export function JsonDetails({ label, value }: { label: string; value: unknown }) { return <details><summary>{label}</summary><pre>{JSON.stringify(value, null, 2)}</pre></details> }
 export function PriceEditor({ config, save, busy, t, reportError }: { config: Configuration; save(config: Configuration): Promise<void>; busy: boolean; t: Text; reportError(message: string): void }) {
   const initial = (): RateCard => rateCardSchema.parse({ id: `rate-${crypto.randomUUID()}`, label: '', provider: '', model: '', currency: 'USD', effectiveFrom: new Date().toISOString(), verifiedAt: new Date().toISOString(), source: 'user-defined', rates: { uncachedInputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null } })
@@ -24,11 +31,11 @@ export function PriceEditor({ config, save, busy, t, reportError }: { config: Co
   return <section aria-label={t('价卡管理', 'Price cards')}>
     <h2>{t('版本化价卡', 'Versioned price cards')}</h2>
     <p>{t('按精确 provider/model、币种和生效区间匹配。空白单价表示未知，0 表示明确免费。估算不等于提供方账单。', 'Exact provider/model, currency and validity matching. A blank rate is unknown; zero is explicitly free. Estimates are not provider invoices.')}</p>
-    <div className="wbActions"><button disabled={busy} onClick={() => void attempt(() => update([...config.cards.filter(card => !publicTemplates().some(template => template.id === card.id)), ...publicTemplates()] ))}>{t('导入已核验 DeepSeek 参考价卡', 'Import reviewed DeepSeek reference cards')}</button>
+    <div className="wbActions"><button disabled={busy} onClick={() => void attempt(() => update([...config.cards.filter(card => !publicTemplates().some(template => template.id === card.id)), ...publicTemplates()] ))}>{t('载入 DeepSeek 空白模板', 'Load blank DeepSeek templates')}</button>
       <button onClick={() => download('token-price-cards.json', JSON.stringify({ schema: 'dsh-token-usage/price-cards-v1', cards: config.cards }, null, 2), 'application/json')}>{t('导出价卡', 'Export price cards')}</button></div>
-    <p>{t('参考表核验日：2026-09-11。标签匹配不能验证实际端点；导入前请核对路由。未来生效版本不会提前用于历史。', 'Reference verified: 2026-09-11. Route labels do not verify the endpoint. Future versions are not applied before their validity interval.')}</p>
+    <p>{t('模板不预填价格。请核对提供方官方价目表、实际路由与生效时间后填写；空白费率不可用，不会按零计费。', 'Templates contain no prices. Verify the official tariff, actual route and validity before entering rates. Unknown rates are not zero.')}</p>
     <div className="wbTable"><table><thead><tr><th>{t('名称 / 路由', 'Name / route')}</th><th>{t('币种 / 有效期', 'Currency / validity')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>{config.cards.map(card => <tr key={card.id}><td>{card.label}<small>{card.provider} / {card.model}</small></td><td>{card.currency}<small>{card.effectiveFrom} → {card.effectiveTo ?? '∞'}</small></td><td><button onClick={() => { setDraft(structuredClone(card)); setEditing(true) }}>{t('编辑', 'Edit')}</button> <button disabled={busy} onClick={() => void attempt(() => update(config.cards.filter(value => value.id !== card.id)))}>{t('删除价卡', 'Delete card')}</button><JsonDetails label={t('费率与来源', 'Rates and provenance')} value={card}/></td></tr>)}</tbody></table></div>
-    <form onSubmit={event => { event.preventDefault(); void attempt(async () => { const parsed = rateCardSchema.parse({ ...draft, verifiedAt: new Date().toISOString() }); await update([...config.cards.filter(card => card.id !== parsed.id), parsed]); setDraft(draftValue()); setEditing(false) }) }}>
+    <form onSubmit={event => { event.preventDefault(); void attempt(async () => { const parsed = rateCardSchema.parse({ ...draft, source: 'user-defined', verifiedAt: new Date().toISOString() }); await update([...config.cards.filter(card => card.id !== parsed.id), parsed]); setDraft(draftValue()); setEditing(false) }) }}>
       <h3>{editing ? t('编辑所选版本（已有实验快照不变）', 'Edit selected version (experiment snapshots stay unchanged)') : t('新增价卡', 'Add a price card')}</h3>
       <div className="wbGrid"><Field label={t('价卡名称', 'Card name')}><input required maxLength={100} value={draft.label} onChange={event => setDraft({ ...draft, label: event.target.value })}/></Field>
         <Field label="Provider"><input required maxLength={256} value={draft.provider} onChange={event => setDraft({ ...draft, provider: event.target.value })}/></Field>
@@ -65,7 +72,7 @@ export function Scenario({ config, usage, t }: { config: Configuration; usage: L
     <p>{t('缓存命中不能保证；缺少请求级上下文大小时不套用阶梯费率。跨时段且计费时点不明的历史调用只提供区间参考。', 'Cache hits are not guaranteed. Context tiers require request-level input evidence. Historical calls with an unverified billing instant use ranges.')}</p>
   </section>
 }
-export function Experiments({ config, snapshot, costs, save, busy, t, reportError }: { config: Configuration; snapshot?: LocalSnapshot; costs: readonly ReceiptCost[]; save(config: Configuration): Promise<void>; busy: boolean; t: Text; reportError(message: string): void }) {
+export function Experiments({ config, snapshot, costs, save, busy, t, reportError }: { config: Configuration; snapshot: LocalSnapshot | undefined; costs: readonly ReceiptCost[]; save(config: Configuration): Promise<void>; busy: boolean; t: Text; reportError(message: string): void }) {
   const [name, setName] = useState(''), [variant, setVariant] = useState<'baseline' | 'candidate'>('baseline'), [pair, setPair] = useState(''), [task, setTask] = useState(''), [size, setSize] = useState(''), [conditions, setConditions] = useState(''), [label, setLabel] = useState(''), [accepted, setAccepted] = useState('unknown')
   const [selected, setSelected] = useState('')
   const names = [...new Set(config.experiments.map(run => run.experiment))]
@@ -76,7 +83,7 @@ export function Experiments({ config, snapshot, costs, save, busy, t, reportErro
       const run: ExperimentRun = experimentRunSchema.parse({ id: crypto.randomUUID(), experiment: name, variant, pair, task, size, conditions, configLabel: label,
         accepted: accepted === 'unknown' ? null : accepted === 'yes', generatedAt: snapshot.generatedAt, revision: snapshot.revision,
         usage: snapshot.totals.usage, retries: snapshot.totals.retries, durationMs: snapshot.totals.activeDurationMs,
-        complete: snapshot.reconciliation === 'matched' && snapshot.totals.openTurns === 0 && snapshot.totals.openSteps === 0 && snapshot.nodeCount <= snapshot.nodes.length && snapshot.nodes.every(node => node.finality === 'authoritative'),
+        complete: snapshot.reconciliation === 'matched' && snapshot.totals.openTurns === 0 && snapshot.totals.openSteps === 0 && snapshot.provisionalNodeCount === 0,
         costs: costs.filter(cost => cost.revision === snapshot.revision).map(cost => ({ currency: cost.estimate.currency, amount: cost.estimate.amount ?? cost.estimate.lower ?? 0, complete: cost.estimate.status === 'complete', basis: `${cost.estimate.mode}; price revision ${cost.priceRevision}; ${cost.estimate.verifiedAt.join(',')}`.slice(0, 200) })),
       })
       await save({ ...config, experiments: [...config.experiments, run] }); setSelected(name)

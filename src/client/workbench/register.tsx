@@ -35,7 +35,7 @@ export function registerWorkbench(ctx: Context, connection: ConnectionHandle): v
     inject: () => ({ port, getLanguage: () => ctx.locale.getLocale().active }),
   }, WorkbenchSection))
   ctx.effect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined') return () => {}
     return installSummaryBridge(window, port, () => {
       const state = ctx.sessions.list.getSnapshot()
       if (state.phase !== 'ready') return null

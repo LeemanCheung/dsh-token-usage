@@ -21,7 +21,7 @@ export interface WorkbenchPort {
   clear(signal: AbortSignal): Promise<WorkbenchState>
 }
 export function makeWorkbenchPort(call: (endpoint: string, payload: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>): WorkbenchPort {
-  const request = async <T>(endpoint: string, payload: Record<string, unknown>, schema: z.ZodType<T>, signal: AbortSignal): Promise<T> => {
+  const request = async <S extends z.ZodType>(endpoint: string, payload: Record<string, unknown>, schema: S, signal: AbortSignal): Promise<z.output<S>> => {
     signal.throwIfAborted()
     const value = await call(endpoint, payload, signal)
     signal.throwIfAborted()

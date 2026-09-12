@@ -102,19 +102,14 @@ export function tariffClock(cards: readonly RateCard[], card: RateCard, now = Da
   }
   return { current, next: Number.isFinite(next) ? new Date(next).toISOString() : null, timezone: currentCard?.timezone ?? card.timezone }
 }
-/** Reviewed public templates. Validity starts at verification, never invented historical dates. */
+/** Empty route templates: never claim a remotely changing tariff was verified by installing this plugin. */
 export function publicTemplates(): RateCard[] {
-  const verifiedAt = '2026-09-11T00:00:00.000Z', transition = '2026-09-14T04:00:00.000Z'
-  const flash = { uncachedInputTokens: 0.15, outputTokens: 0.6, cacheReadTokens: 0.003, cacheWriteTokens: null }
-  const pro = { uncachedInputTokens: 0.66, outputTokens: 1.98, cacheReadTokens: 0.022, cacheWriteTokens: null }
-  const make = (model: string, rates: Rates, from = verifiedAt, to?: string) => rateCardSchema.parse({
-    id: `public-${model}-${from.slice(0, 10)}`, label: `DeepSeek ${model} (${from.slice(0, 10)})`, provider: 'deepseek', model,
-    currency: 'USD', effectiveFrom: from, ...to ? { effectiveTo: to } : {}, verifiedAt, source: 'public',
-    sourceUrl: 'https://api-docs.deepseek.com/quick_start/pricing/', rates, timezone: 'UTC', tiers: [],
-    periods: [[60, 240], [360, 600]].map(([startMinute, endMinute]) => ({ days: [1, 2, 3, 4, 5], startMinute, endMinute, rates: Object.fromEntries(bucketKeys.map(key => [key, rates[key] === null ? null : rates[key]! * 2])) })),
-  })
-  return cardsSchema.parse([
-    ...['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'].map(model => make(model, flash)),
-    make('deepseek-v4-pro', pro, verifiedAt, transition), make('deepseek-v4-pro', flash, transition),
-  ])
+  const now = new Date().toISOString()
+  return ['deepseek-v4-flash', 'deepseek-v4-pro'].map(model => rateCardSchema.parse({
+    id: `template-${model}`, label: `${model} — configure rates`, provider: 'deepseek', model,
+    currency: 'USD', effectiveFrom: now, verifiedAt: now, source: 'user-defined',
+    sourceUrl: 'https://api-docs.deepseek.com/quick_start/pricing/',
+    rates: { uncachedInputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null },
+    timezone: 'UTC', periods: [], tiers: [],
+  }))
 }

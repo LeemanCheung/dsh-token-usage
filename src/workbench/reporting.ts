@@ -49,7 +49,11 @@ export function receiptDocument(snapshot: LocalSnapshot, costs: readonly Receipt
     inspectedEvents: snapshot.eventCount, totalNodes: snapshot.nodeCount,
     page: { offset: snapshot.offset, nextOffset: snapshot.nextOffset, includedNodes: snapshot.nodes.length },
     nodes: snapshot.nodes.map((node, index) => anonymize ? { index: snapshot.offset + index, seq: node.seq, kind: node.kind, status: node.status, finality: node.finality, usage: node.usage } : node),
-    costs: costs.filter(cost => cost.revision === snapshot.revision),
+    costs: costs.filter(cost => cost.revision === snapshot.revision).map(cost => anonymize ? {
+      currency: cost.estimate.currency, mode: cost.estimate.mode, amount: cost.estimate.amount,
+      lower: cost.estimate.lower, upper: cost.estimate.upper, status: cost.estimate.status,
+      coveredTokens: cost.estimate.coveredTokens, totalTokens: cost.estimate.totalTokens,
+    } : cost),
     notes: ['Reference estimate, not a provider invoice.', 'Auxiliary AI analysis is recorded separately.', 'Node export contains the currently displayed page; totals cover the complete inspected snapshot.'],
   }
 }

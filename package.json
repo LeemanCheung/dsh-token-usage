@@ -1,6 +1,6 @@
 {
   "name": "dsh-token-usage",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "description": "Persistent token usage records and dashboard for DeepSeek Harness",
   "keywords": [
@@ -37,7 +37,8 @@
     "lib",
     "src",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "docs/workbench.md"
   ],
   "dsh": {
     "pluginType": "feature",
