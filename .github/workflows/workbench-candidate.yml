@@ -73,9 +73,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm run build
+          npm run build 2>&1 | tee test-results/workbench/build.log
           sha256sum lib/client.js lib/client.js.map lib/index.js > test-results/workbench/bundle-sha256.txt
-          npm run build
+          npm run build 2>&1 | tee -a test-results/workbench/build.log
           sha256sum --check test-results/workbench/bundle-sha256.txt
           git diff --check
           npm pack --dry-run --json > test-results/workbench/package-manifest.json
@@ -90,7 +90,9 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src tests scripts package.json README.md .github/workflows/ci.yml lib
+          # Workflow edits are committed separately through the maintainer connection.
+          # This token needs only contents:write, not workflows permission.
+          git add src tests scripts package.json README.md lib
           if ! git diff --cached --quiet; then
             git commit -m 'build: verify workbench integration and regenerate deterministic bundles'
             git push origin HEAD:refs/heads/feat/local-usage-workbench
@@ -105,7 +107,7 @@ jobs:
           node --input-type=module <<'NODE'
           import { existsSync, readFileSync, writeFileSync } from 'node:fs';
           const output = [`Run: ${process.env.GITHUB_RUN_ID}; source: ${process.env.GITHUB_SHA}`];
-          for (const file of ['typecheck.log', 'unit-tests.log', 'browser.log', 'browser-results.json']) {
+          for (const file of ['typecheck.log', 'unit-tests.log', 'browser.log', 'build.log', 'browser-results.json']) {
             const path = `test-results/workbench/${file}`;
             if (!existsSync(path)) continue;
             const text = readFileSync(path, 'utf8').replace(/\x1b\[[0-9;]*m/g, '');
@@ -113,7 +115,7 @@ jobs:
           }
           writeFileSync('.candidate/diagnostics.txt', output.join('\n') + '\n');
           NODE
-          git reset --quiet
+          git reset --mixed --quiet "$GITHUB_SHA"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .candidate/diagnostics.txt
