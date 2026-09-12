@@ -12,16 +12,20 @@ import { makeWorkbenchPort, type WorkbenchPort } from '../../workbench/port.ts'
 import { aggregateUsage } from '../selectors/usage.ts'
 import { NS } from '../locales.ts'
 import { WorkbenchApp } from './App.tsx'
+import { OfflineReceipts } from './OfflineReceipts.tsx'
+import { workbenchCss } from './styles.ts'
 import { installSummaryBridge } from './summary-bridge.ts'
 
 type WorkbenchSectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS> & InjectFace<{ port: WorkbenchPort; getLanguage(): string }>
-function WorkbenchSection({ useSessions, port, getLanguage }: WorkbenchSectionProps) {
+export function WorkbenchSection({ useSessions, port, getLanguage }: WorkbenchSectionProps) {
   const phase = useSessions(state => state.phase)
   const ids = useSessions(state => state.ids)
   const byId = useSessions(state => state.byId)
   const data = useMemo(() => aggregateUsage(ids.map(id => byId[id]).filter((value): value is SessionSummary => value !== undefined)), [ids, byId])
   const chinese = getLanguage().toLowerCase().startsWith('zh')
-  return <WorkbenchApp port={port} sessions={phase === 'ready' ? data.sessions : []} chinese={chinese}/>
+  // An unavailable index is not an empty, fully observed set of sessions.
+  if (phase !== 'ready') return <main className="wbRoot"><style>{workbenchCss}</style><p role="status">{chinese ? '会话索引尚未就绪；仅可查看已保存的离线收据。' : 'The session index is not ready; only saved offline receipts are available.'}</p><OfflineReceipts snapshot={undefined} t={(zh, en) => chinese ? zh : en}/></main>
+  return <WorkbenchApp port={port} sessions={data.sessions} chinese={chinese}/>
 }
 export function registerWorkbench(ctx: Context, connection: ConnectionHandle, throughput?: TokenThroughputController): void {
   const port = makeWorkbenchPort(async (endpoint, payload, signal) => {
