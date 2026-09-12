@@ -1,4 +1,4 @@
-Run: 34674520285; source: 40a817a8a6e9ce84d54cf8408081514bbddde311
+Run: 34674627828; source: 67b0b28f238f7cfa4a00e6b74e412a11d8d628e1
 
 === typecheck.log ===
 
@@ -13,17 +13,212 @@ Run: 34674520285; source: 40a817a8a6e9ce84d54cf8408081514bbddde311
 > dsh-token-usage@0.4.0 typecheck:client
 > tsc -p tsconfig.client.json --noEmit
 
-src/client/workbench/App.tsx(165,35): error TS2719: Type '{ config: { cards: { id: string; label: string; provider: string; model: string; currency: "USD" | "CNY"; effectiveFrom: string; verifiedAt: string; source: "public" | "user-defined"; rates: { uncachedInputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; cacheWriteTokens: number | ...' is not assignable to type '{ config: { cards: { id: string; label: string; provider: string; model: string; currency: "USD" | "CNY"; effectiveFrom: string; verifiedAt: string; source: "public" | "user-defined"; rates: { uncachedInputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; cacheWriteTokens: number | ...'. Two different types with this name exist, but they are unrelated.
-  Types of property 'snapshot' are incompatible.
-    Type '{ schema: "dsh-token-usage/snapshot-v1"; sessionId: string; generatedAt: string; revision: string; firstSeq: number; lastSeq: number; eventCount: number; totals: { usage: { uncachedInputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; }; ... 17 more ...; failedTurns: number; }...' is not assignable to type '{ schema: "dsh-token-usage/snapshot-v1"; sessionId: string; generatedAt: string; revision: string; firstSeq: number; lastSeq: number; eventCount: number; totals: { usage: { uncachedInputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; }; ... 17 more ...; failedTurns: number; }...'. Two different types with this name exist, but they are unrelated.
-      Type 'undefined' is not assignable to type '{ schema: "dsh-token-usage/snapshot-v1"; sessionId: string; generatedAt: string; revision: string; firstSeq: number; lastSeq: number; eventCount: number; totals: { usage: { uncachedInputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; }; ... 17 more ...; failedTurns: number; }...'.
-src/client/workbench/register.tsx(37,14): error TS2769: No overload matches this call.
-  Overload 1 of 2, '(execute: () => SyncEffect<any>, label?: string | undefined): Disposable<Promise<void>>', gave the following error.
-    Argument of type '() => (() => void) | undefined' is not assignable to parameter of type '() => SyncEffect<any>'.
-      Type '(() => void) | undefined' is not assignable to type 'SyncEffect<any>'.
-        Type 'undefined' is not assignable to type 'SyncEffect<any>'.
-  Overload 2 of 2, '(execute: () => Effect<any>, label?: string | undefined): AsyncDisposable<Promise<void>>', gave the following error.
-    Argument of type '() => (() => void) | undefined' is not assignable to parameter of type '() => Effect<any>'.
-      Type '(() => void) | undefined' is not assignable to type 'Effect<any>'.
-        Type 'undefined' is not assignable to type 'Effect<any>'.
+
+> dsh-token-usage@0.4.0 typecheck:config
+> tsc --noEmit --strict --module nodenext --moduleResolution nodenext --target es2024 --skipLibCheck --allowImportingTsExtensions --types node tsdown.config.ts tests/build-config.spec.ts
+
+
+
+=== unit-tests.log ===
+
+> dsh-token-usage@0.4.0 test
+> vitest run
+
+
+ RUN  v4.1.8 /home/runner/work/dsh-token-usage/dsh-token-usage
+
+ ✓ tests/trajectory-analysis.spec.ts (15 tests) 128ms
+ ✓ tests/projection.spec.ts (10 tests) 49ms
+ ❯ tests/workbench.spec.ts (33 tests | 4 failed) 90ms
+     ✓ rejects negative, fractional and overflowing token buckets 6ms
+     ✓ distinguishes null rates from zero rates 4ms
+     ✓ applies output defaults without admitting unknown fields 3ms
+     ✓ rejects overlapping tariff periods and invalid timezones 23ms
+     ✓ rejects price versions with overlapping validity but accepts adjacent versions 4ms
+     ✓ requires one valid primary project and unique ids 2ms
+     ✓ prices four disjoint buckets and requires an exact route 2ms
+     ✓ does not apply a future price version early 1ms
+     ✓ never sums different currencies 2ms
+     ✓ reports partial coverage instead of silently treating missing rates as free 1ms
+     ✓ conserves tokens in cache scenarios without mutating real usage 1ms
+     ✓ uses a range for an uncertain billing instant and half-open tariff intervals 1ms
+     ✓ evaluates tariff timezone instead of the viewer timezone 1ms
+     ✓ requires request-level evidence for context tiers and cache-write class 2ms
+     ✓ never ships unverified numeric prices as reviewed presets 1ms
+     ✓ finds a version boundary without applying it early 1ms
+     × reconciles provider usage and never exports prompt or tool bodies 8ms
+     × returns stable pages and rejects invalid offsets and overlarge inspections 1ms
+     ✓ uses interval union for concurrent active duration 0ms
+     × includes rule versions, thresholds and evidence 1ms
+     ✓ compares complete UTC days and makes contributor, route and bucket deltas additive 2ms
+     ✓ excludes undated history and preserves explicit unknown-route residuals 1ms
+     ✓ counts a session once even with multiple tags and keeps unassigned usage 1ms
+     ✓ never labels an incomplete money estimate within budget 1ms
+     ✓ neutralizes spreadsheet formula injection in identifiers 1ms
+     ✓ requires matching task, size and conditions for pairs 1ms
+     ✓ does not equate completion with acceptance, or invent statistics for one sample 0ms
+     ✓ includes failed attempts in cost per accepted task and handles zero passes 0ms
+     ✓ keeps unknown auxiliary usage distinct from observed zero 0ms
+     × rejects snapshot identity mismatches and stale revisions 1ms
+     ✓ supports schema-defaulted output on read and cancellation before RPC 5ms
+     ✓ shares only allowlisted numerical aggregates, never labels or routes 6ms
+     ✓ requires opt-in, throttles requests and removes listeners on disposal 3ms
+ ✓ tests/throughput-controller.client.spec.ts (12 tests) 41ms
+ ❯ tests/workbench-host.spec.ts (12 tests | 1 failed) 49ms
+     ✓ persists configuration and recovers it in a new Host instance 9ms
+     ✓ serializes writes and rejects the second stale revision without data loss 2ms
+     ✓ preserves corrupt storage instead of silently overwriting it 1ms
+     ✓ does not advance configuration when persistence fails 1ms
+     ✓ rejects unexpected payload fields, malformed sessions and cancelled operations 3ms
+     × inspects from live events with no LLM dependency and keeps cache identities separate 9ms
+     ✓ marks recovered in-flight ledger entries interrupted 3ms
+     ✓ replaces cumulative usage updates instead of double-counting them 6ms
+     ✓ retains partial usage on provider failure 3ms
+     ✓ distinguishes cancelled analysis from provider errors 2ms
+     ✓ keeps unreported usage unknown and does not block analysis on storage failure 8ms
+     ✓ requires explicit clearing and never clears an active analysis 2ms
+ ✓ tests/usage-analysis.spec.ts (6 tests) 34ms
+ ✓ tests/trajectory-action.client.spec.tsx (4 tests) 360ms
+ ❯ tests/build-config.spec.ts (5 tests | 1 failed) 21ms
+     × uses the replacement client services and keeps live compatibility unclaimed 9ms
+     ✓ uses a fixed POSIX namespace for cross-platform CSS module hashes 2ms
+     ✓ keeps CSS module names stable across checkout roots and scoped by package 2ms
+     ✓ replaces the shared CSS load hook with a sorted, watched virtual module 5ms
+     ✓ normalizes source-map line endings and rejects absolute source paths 1ms
+ ✓ tests/trajectory-analysis-client.spec.ts (8 tests) 8ms
+ ✓ tests/budget-controller.client.spec.ts (5 tests) 61ms
+ ✓ tests/client-apply.spec.ts (1 test) 18ms
+ ✓ tests/analysis-progress.spec.ts (4 tests) 65ms
+ ✓ tests/export.client.spec.ts (4 tests) 8ms
+ ✓ tests/usage-analysis-client.spec.ts (4 tests) 13ms
+ ✓ tests/analysis-report.client.spec.ts (2 tests) 6ms
+ ✓ tests/component.client.spec.tsx (25 tests) 5705ms
+     ✓ does not turn synthetic legacy dates into run-rate or anomaly signals  493ms
+     ✓ renders daily Token activity as a heatmap cell  442ms
+     ✓ switches trend periods, persists a budget, and exports aggregate-only data  348ms
+     ✓ recovers the settings model catalog after a transient RPC failure  365ms
+     ✓ selects an integrated model and sends only aggregate Token records for AI optimization  376ms
+     ✓ shows estimated model output progress while aggregate analysis is running  404ms
+     ✓ runs trajectory analysis for a selected session through the chosen integrated route  416ms
+     ✓ retains legacy approval ask and reject counts while marking v3 audit fields unavailable  330ms
+ ✓ tests/analytics.client.spec.ts (4 tests) 7ms
+ ✓ tests/route-budget.client.spec.ts (2 tests) 7ms
+ ✓ tests/workbench-multicall.spec.ts (2 tests) 30ms
+ ✓ tests/efficiency.client.spec.ts (3 tests) 5ms
+ ✓ tests/throughput.client.spec.tsx (3 tests) 64ms
+ ✓ tests/pricing.spec.ts (2 tests) 6ms
+ ✓ tests/trajectory-history.client.spec.ts (2 tests) 17ms
+ ✓ tests/download.client.spec.ts (1 test) 8ms
+ ✓ tests/throughput-layout.spec.ts (1 test) 3ms
+ ✓ tests/host-apply.spec.ts (14 tests) 20383ms
+     ✓ isolates provider catalog timeouts and retries one hung call after cooldown  10008ms
+     ✓ caps cooldown retries for a permanently hung provider catalog  10008ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/build-config.spec.ts > DSH 0.1.2 package contract > uses the replacement client services and keeps live compatibility unclaimed
+AssertionError: expected '0.4.0' to be '0.3.2' // Object.is equality
+
+Expected: "0.3.2"
+Received: "0.4.0"
+
+ ❯ tests/build-config.spec.ts:18:30
+     16| describe('DSH 0.1.2 package contract', () => {
+     17|   it('uses the replacement client services and keeps live compatibilit…
+     18|     expect(manifest.version).toBe('0.3.2')
+       |                              ^
+     19|     expect(manifest.dsh?.client?.inject).not.toContain('@deepseek-ai/d…
+     20|     expect(manifest.dsh?.client?.inject).toEqual(expect.arrayContainin…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/workbench-host.spec.ts > workbench Host persistence and RPC > inspects from live events with no LLM dependency and keeps cache identities separate
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/workbench-host.spec.ts:72:23
+     70|     const { host } = hostFixture()
+     71|     const result = await host.handle('workbench/snapshot', { sessionId…
+     72|     expect(result.ok).toBe(true)
+       |                       ^
+     73|     if (!result.ok) throw new Error('inspection failed')
+     74|     const snapshot = snapshotSchema.parse(result.value)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/workbench.spec.ts > local receipts and diagnostics > reconciles provider usage and never exports prompt or tool bodies
+TypeError: TurnId is not a function
+ ❯ workbenchEvents tests/workbench.fixture.ts:14:18
+     12|   push('session/create', { id: fixtureSessionId, parent: null, type: '…
+     13|   for (let index = 0; index < count; index++) {
+     14|     const turn = TurnId(index + 1), step = StepId(index + 1), call = T…
+       |                  ^
+     15|     push('turn/start', { turn, data: { message: 'SECRET_PROMPT_DO_NOT_…
+     16|     push(BuiltinEventType.StepStart, { turn, step })
+ ❯ tests/workbench.spec.ts:110:75
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  tests/workbench.spec.ts > local receipts and diagnostics > returns stable pages and rejects invalid offsets and overlarge inspections
+TypeError: TurnId is not a function
+ ❯ workbenchEvents tests/workbench.fixture.ts:14:18
+     12|   push('session/create', { id: fixtureSessionId, parent: null, type: '…
+     13|   for (let index = 0; index < count; index++) {
+     14|     const turn = TurnId(index + 1), step = StepId(index + 1), call = T…
+       |                  ^
+     15|     push('turn/start', { turn, data: { message: 'SECRET_PROMPT_DO_NOT_…
+     16|     push(BuiltinEventType.StepStart, { turn, step })
+ ❯ tests/workbench.spec.ts:120:61
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  tests/workbench.spec.ts > local receipts and diagnostics > includes rule versions, thresholds and evidence
+TypeError: TurnId is not a function
+ ❯ workbenchEvents tests/workbench.fixture.ts:14:18
+     12|   push('session/create', { id: fixtureSessionId, parent: null, type: '…
+     13|   for (let index = 0; index < count; index++) {
+     14|     const turn = TurnId(index + 1), step = StepId(index + 1), call = T…
+       |                  ^
+     15|     push('turn/start', { turn, data: { message: 'SECRET_PROMPT_DO_NOT_…
+     16|     push(BuiltinEventType.StepStart, { turn, step })
+ ❯ tests/workbench.spec.ts:132:75
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  tests/workbench.spec.ts > RPC and sharing boundaries > rejects snapshot identity mismatches and stale revisions
+TypeError: TurnId is not a function
+ ❯ workbenchEvents tests/workbench.fixture.ts:14:18
+     12|   push('session/create', { id: fixtureSessionId, parent: null, type: '…
+     13|   for (let index = 0; index < count; index++) {
+     14|     const turn = TurnId(index + 1), step = StepId(index + 1), call = T…
+       |                  ^
+     15|     push('turn/start', { turn, data: { message: 'SECRET_PROMPT_DO_NOT_…
+     16|     push(BuiltinEventType.StepStart, { turn, step })
+ ❯ tests/workbench.spec.ts:205:75
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  3 failed | 23 passed (26)
+      Tests  6 failed | 178 passed (184)
+   Start at  05:04:32
+   Duration  21.39s (transform 1.90s, setup 0ms, import 4.16s, tests 27.19s, environment 4.85s)
+
+
+::error file=/home/runner/work/dsh-token-usage/dsh-token-usage/tests/build-config.spec.ts,title=tests/build-config.spec.ts > DSH 0.1.2 package contract > uses the replacement client services and keeps live compatibility unclaimed,line=18,column=30::AssertionError: expected '0.4.0' to be '0.3.2' // Object.is equality%0A%0AExpected: "0.3.2"%0AReceived: "0.4.0"%0A%0A ❯ tests/build-config.spec.ts:18:30%0A%0A
+
+::error file=/home/runner/work/dsh-token-usage/dsh-token-usage/tests/workbench-host.spec.ts,title=tests/workbench-host.spec.ts > workbench Host persistence and RPC > inspects from live events with no LLM dependency and keeps cache identities separate,line=72,column=23::AssertionError: expected false to be true // Object.is equality%0A%0A- Expected%0A+ Received%0A%0A- true%0A+ false%0A%0A ❯ tests/workbench-host.spec.ts:72:23%0A%0A
+
+::error file=/home/runner/work/dsh-token-usage/dsh-token-usage/tests/workbench.fixture.ts,title=tests/workbench.spec.ts > local receipts and diagnostics > reconciles provider usage and never exports prompt or tool bodies,line=14,column=18::TypeError: TurnId is not a function%0A ❯ workbenchEvents tests/workbench.fixture.ts:14:18%0A ❯ tests/workbench.spec.ts:110:75%0A%0A
+
+::error file=/home/runner/work/dsh-token-usage/dsh-token-usage/tests/workbench.fixture.ts,title=tests/workbench.spec.ts > local receipts and diagnostics > returns stable pages and rejects invalid offsets and overlarge inspections,line=14,column=18::TypeError: TurnId is not a function%0A ❯ workbenchEvents tests/workbench.fixture.ts:14:18%0A ❯ tests/workbench.spec.ts:120:61%0A%0A
+
+::error file=/home/runner/work/dsh-token-usage/dsh-token-usage/tests/workbench.fixture.ts,title=tests/workbench.spec.ts > local receipts and diagnostics > includes rule versions%2C thresholds and evidence,line=14,column=18::TypeError: TurnId is not a function%0A ❯ workbenchEvents tests/workbench.fixture.ts:14:18%0A ❯ tests/workbench.spec.ts:132:75%0A%0A
+
+::error file=/home/runner/work/dsh-token-usage/dsh-token-usage/tests/workbench.fixture.ts,title=tests/workbench.spec.ts > RPC and sharing boundaries > rejects snapshot identity mismatches and stale revisions,line=14,column=18::TypeError: TurnId is not a function%0A ❯ workbenchEvents tests/workbench.fixture.ts:14:18%0A ❯ tests/workbench.spec.ts:205:75%0A%0A
 
