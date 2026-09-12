@@ -6,11 +6,12 @@ edit('src/workbench/schema.ts', text => text
   .replace('nodeCount: integer, offset: integer', 'nodeCount: integer, provisionalNodeCount: integer, offset: integer')
   .replace('offset: integer.max(100000)', 'offset: integer.max(200000)'))
 edit('src/workbench/port.ts', text => text.replace('async <T>(endpoint: string, payload: Record<string, unknown>, schema: z.ZodType<T>, signal: AbortSignal): Promise<T>', 'async <S extends z.ZodType>(endpoint: string, payload: Record<string, unknown>, schema: S, signal: AbortSignal): Promise<z.output<S>>'))
-edit('src/workbench/host.ts', text => text
-  .replace("import { SessionId }", "import { SessionId, isSessionEvent }")
-  .replace('(await ctx.sessionQuery.readSession(id)).events', '(await ctx.sessionQuery.readSession(id)).events.filter(isSessionEvent)')
-  .replace('buildSnapshot(request.sessionId, events,', 'buildSnapshot(request.sessionId, events.filter(isSessionEvent),'))
-edit('src/workbench/snapshot.ts', text => text.replace('nodeCount: nodes.length, routes:', "nodeCount: nodes.length, provisionalNodeCount: nodes.filter(node => node.finality !== 'authoritative').length, routes:"))
+// DSH exposes SessionEvent as a union including replacement surfaces; there is no isSessionEvent export.
+// Preserve that union exactly, as the existing trajectory/projection implementation does.
+edit('src/workbench/host.ts', text => text.replace('SessionId, isSessionEvent', 'SessionId').replaceAll('.filter(isSessionEvent)', ''))
+edit('src/workbench/snapshot.ts', text => text
+  .replace('const times = new Map(events.map', 'const times = new Map<number, number>(events.map')
+  .replace('nodeCount: nodes.length, routes:', "nodeCount: nodes.length, provisionalNodeCount: nodes.filter(node => node.finality !== 'authoritative').length, routes:"))
 edit('src/client/workbench/components.tsx', text => text
   .replace("import { useState,", "import { useMemo, useState,")
   .replace("import { useState }", "import { useMemo, useState }")
