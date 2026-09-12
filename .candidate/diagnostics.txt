@@ -1,9 +1,29 @@
-Source job: 103215057282
-2026-09-11T09:31:16.7640316Z npm run typecheck 2>&1 | tee test-results/workbench/typecheck.log
-2026-09-11T09:31:16.8652901Z > dsh-token-usage@0.4.0 typecheck
-2026-09-11T09:31:16.8654501Z > npm run typecheck:host && npm run typecheck:client && npm run typecheck:config
-2026-09-11T09:31:16.9687693Z > dsh-token-usage@0.4.0 typecheck:host
-2026-09-11T09:31:19.2486399Z ##[error]src/workbench/host.ts(4,21): error TS2724: '"@deepseek-ai/dsh-session"' has no exported member named 'isSessionEvent'. Did you mean 'SessionEvent'?
-2026-09-11T09:31:19.2496361Z ##[error]src/workbench/snapshot.ts(29,19): error TS2345: Argument of type 'number' is not assignable to parameter of type 'SessionSeq'.
-2026-09-11T09:31:19.2498900Z ##[error]src/workbench/snapshot.ts(29,58): error TS2345: Argument of type 'number' is not assignable to parameter of type 'SessionSeq'.
-2026-09-11T09:31:19.2899345Z ##[error]Process completed with exit code 2.
+Run: 34674520285; source: 40a817a8a6e9ce84d54cf8408081514bbddde311
+
+=== typecheck.log ===
+
+> dsh-token-usage@0.4.0 typecheck
+> npm run typecheck:host && npm run typecheck:client && npm run typecheck:config
+
+
+> dsh-token-usage@0.4.0 typecheck:host
+> tsc -p tsconfig.host.json --noEmit
+
+
+> dsh-token-usage@0.4.0 typecheck:client
+> tsc -p tsconfig.client.json --noEmit
+
+src/client/workbench/App.tsx(165,35): error TS2719: Type '{ config: { cards: { id: string; label: string; provider: string; model: string; currency: "USD" | "CNY"; effectiveFrom: string; verifiedAt: string; source: "public" | "user-defined"; rates: { uncachedInputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; cacheWriteTokens: number | ...' is not assignable to type '{ config: { cards: { id: string; label: string; provider: string; model: string; currency: "USD" | "CNY"; effectiveFrom: string; verifiedAt: string; source: "public" | "user-defined"; rates: { uncachedInputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; cacheWriteTokens: number | ...'. Two different types with this name exist, but they are unrelated.
+  Types of property 'snapshot' are incompatible.
+    Type '{ schema: "dsh-token-usage/snapshot-v1"; sessionId: string; generatedAt: string; revision: string; firstSeq: number; lastSeq: number; eventCount: number; totals: { usage: { uncachedInputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; }; ... 17 more ...; failedTurns: number; }...' is not assignable to type '{ schema: "dsh-token-usage/snapshot-v1"; sessionId: string; generatedAt: string; revision: string; firstSeq: number; lastSeq: number; eventCount: number; totals: { usage: { uncachedInputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; }; ... 17 more ...; failedTurns: number; }...'. Two different types with this name exist, but they are unrelated.
+      Type 'undefined' is not assignable to type '{ schema: "dsh-token-usage/snapshot-v1"; sessionId: string; generatedAt: string; revision: string; firstSeq: number; lastSeq: number; eventCount: number; totals: { usage: { uncachedInputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; }; ... 17 more ...; failedTurns: number; }...'.
+src/client/workbench/register.tsx(37,14): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(execute: () => SyncEffect<any>, label?: string | undefined): Disposable<Promise<void>>', gave the following error.
+    Argument of type '() => (() => void) | undefined' is not assignable to parameter of type '() => SyncEffect<any>'.
+      Type '(() => void) | undefined' is not assignable to type 'SyncEffect<any>'.
+        Type 'undefined' is not assignable to type 'SyncEffect<any>'.
+  Overload 2 of 2, '(execute: () => Effect<any>, label?: string | undefined): AsyncDisposable<Promise<void>>', gave the following error.
+    Argument of type '() => (() => void) | undefined' is not assignable to parameter of type '() => Effect<any>'.
+      Type '(() => void) | undefined' is not assignable to type 'Effect<any>'.
+        Type 'undefined' is not assignable to type 'Effect<any>'.
+
