@@ -1,4 +1,4 @@
-Run: 34675025703; source: 246e118324850a156d7a94425aae3e61c610d8b8
+Run: 34675216137; source: ca3d2004dde38fd1c0ae84f84ba2a8790638f5bd
 
 === typecheck.log ===
 
@@ -27,49 +27,46 @@ Run: 34675025703; source: 246e118324850a156d7a94425aae3e61c610d8b8
 
  RUN  v4.1.8 /home/runner/work/dsh-token-usage/dsh-token-usage
 
- ✓ tests/trajectory-analysis.spec.ts (15 tests) 104ms
- ✓ tests/projection.spec.ts (10 tests) 36ms
- ✓ tests/workbench.spec.ts (33 tests) 112ms
- ✓ tests/throughput-controller.client.spec.ts (12 tests) 41ms
- ✓ tests/workbench-host.spec.ts (12 tests) 51ms
- ✓ tests/usage-analysis.spec.ts (6 tests) 42ms
- ✓ tests/trajectory-action.client.spec.tsx (4 tests) 461ms
-     ✓ runs the shared analysis flow and exposes browser-local session history  344ms
- ✓ tests/build-config.spec.ts (5 tests) 17ms
- ✓ tests/trajectory-analysis-client.spec.ts (8 tests) 10ms
+ ✓ tests/trajectory-analysis.spec.ts (15 tests) 83ms
+ ✓ tests/projection.spec.ts (10 tests) 25ms
+ ✓ tests/workbench.spec.ts (33 tests) 98ms
+ ✓ tests/throughput-controller.client.spec.ts (12 tests) 24ms
+ ✓ tests/workbench-host.spec.ts (12 tests) 36ms
+ ✓ tests/usage-analysis.spec.ts (6 tests) 47ms
+ ✓ tests/trajectory-action.client.spec.tsx (4 tests) 352ms
+ ✓ tests/build-config.spec.ts (5 tests) 11ms
+ ✓ tests/trajectory-analysis-client.spec.ts (8 tests) 9ms
  ✓ tests/budget-controller.client.spec.ts (5 tests) 60ms
- ✓ tests/client-apply.spec.ts (1 test) 15ms
- ✓ tests/analysis-progress.spec.ts (4 tests) 63ms
- ✓ tests/export.client.spec.ts (4 tests) 11ms
- ✓ tests/usage-analysis-client.spec.ts (4 tests) 10ms
- ✓ tests/component.client.spec.tsx (25 tests) 5942ms
-     ✓ does not turn synthetic legacy dates into run-rate or anomaly signals  467ms
-     ✓ suppresses operational and anomaly signals when daily coverage is only partial  316ms
-     ✓ renders daily Token activity as a heatmap cell  506ms
-     ✓ filters reliable UTC trends by exact provider/model route  313ms
-     ✓ switches trend periods, persists a budget, and exports aggregate-only data  398ms
-     ✓ recovers the settings model catalog after a transient RPC failure  440ms
-     ✓ refreshes the live model catalog on demand  302ms
-     ✓ selects an integrated model and sends only aggregate Token records for AI optimization  322ms
-     ✓ runs trajectory analysis for a selected session through the chosen integrated route  398ms
+ ✓ tests/client-apply.spec.ts (1 test) 13ms
+ ✓ tests/analysis-progress.spec.ts (4 tests) 62ms
+ ✓ tests/export.client.spec.ts (4 tests) 6ms
+ ✓ tests/usage-analysis-client.spec.ts (4 tests) 7ms
+ ✓ tests/component.client.spec.tsx (25 tests) 4810ms
+     ✓ does not turn synthetic legacy dates into run-rate or anomaly signals  312ms
+     ✓ renders daily Token activity as a heatmap cell  417ms
+     ✓ switches trend periods, persists a budget, and exports aggregate-only data  304ms
+     ✓ recovers the settings model catalog after a transient RPC failure  309ms
+     ✓ selects an integrated model and sends only aggregate Token records for AI optimization  367ms
+     ✓ shows estimated model output progress while aggregate analysis is running  322ms
+     ✓ runs trajectory analysis for a selected session through the chosen integrated route  416ms
  ✓ tests/analysis-report.client.spec.ts (2 tests) 5ms
  ✓ tests/analytics.client.spec.ts (4 tests) 7ms
- ✓ tests/route-budget.client.spec.ts (2 tests) 6ms
- ✓ tests/workbench-multicall.spec.ts (2 tests) 13ms
- ✓ tests/efficiency.client.spec.ts (3 tests) 5ms
- ✓ tests/throughput.client.spec.tsx (3 tests) 64ms
- ✓ tests/pricing.spec.ts (2 tests) 5ms
- ✓ tests/trajectory-history.client.spec.ts (2 tests) 16ms
+ ✓ tests/route-budget.client.spec.ts (2 tests) 7ms
+ ✓ tests/workbench-multicall.spec.ts (2 tests) 9ms
+ ✓ tests/efficiency.client.spec.ts (3 tests) 6ms
+ ✓ tests/throughput.client.spec.tsx (3 tests) 45ms
+ ✓ tests/pricing.spec.ts (2 tests) 4ms
+ ✓ tests/trajectory-history.client.spec.ts (2 tests) 15ms
  ✓ tests/throughput-layout.spec.ts (1 test) 3ms
- ✓ tests/download.client.spec.ts (1 test) 7ms
- ✓ tests/host-apply.spec.ts (14 tests) 20369ms
-     ✓ isolates provider catalog timeouts and retries one hung call after cooldown  10006ms
+ ✓ tests/download.client.spec.ts (1 test) 6ms
+ ✓ tests/host-apply.spec.ts (14 tests) 20385ms
+     ✓ isolates provider catalog timeouts and retries one hung call after cooldown  10005ms
      ✓ caps cooldown retries for a permanently hung provider catalog  10008ms
 
  Test Files  26 passed (26)
       Tests  184 passed (184)
-   Start at  05:13:46
-   Duration  21.19s (transform 1.93s, setup 0ms, import 4.05s, tests 27.48s, environment 4.77s)
+   Start at  05:18:08
+   Duration  21.01s (transform 1.47s, setup 0ms, import 3.18s, tests 26.13s, environment 4.03s)
 
 
 
@@ -79,33 +76,33 @@ added 5 packages in 2s
 Installing dependencies...
 Switching to root user to install dependencies...
 Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
 Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
 Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
 Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
 Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
-Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
-Get:7 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1263 kB]
-Get:8 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [292 kB]
-Get:9 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [180 kB]
-Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1690 kB]
-Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [387 kB]
-Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1544 kB]
-Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [354 kB]
-Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
-Get:15 https://dl.google.com/linux/chrome-stable/deb stable InRelease [2548 B]
-Get:16 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [5748 B]
-Get:17 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [12.6 kB]
-Get:18 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1006 kB]
-Get:19 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [213 kB]
-Get:20 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [46.5 kB]
-Get:21 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1206 kB]
-Get:25 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [414 kB]
-Get:22 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [76.3 kB]
-Get:23 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1445 kB]
-Get:26 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [463 kB]
-Get:24 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [336 kB]
+Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [414 kB]
+Get:8 https://dl.google.com/linux/chrome-stable/deb stable InRelease [2548 B]
+Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [463 kB]
+Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1263 kB]
+Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [292 kB]
+Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [180 kB]
+Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1690 kB]
+Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [387 kB]
+Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1544 kB]
+Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [354 kB]
+Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+Get:18 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [5748 B]
+Get:19 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [12.6 kB]
+Get:20 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1006 kB]
+Get:21 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [213 kB]
+Get:22 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [46.5 kB]
+Get:23 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1206 kB]
+Get:24 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [76.3 kB]
+Get:25 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1445 kB]
+Get:26 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [336 kB]
 Get:27 https://dl.google.com/linux/chrome-stable/deb stable/main amd64 Packages [1413 B]
-Fetched 11.3 MB in 1s (8699 kB/s)
+Fetched 11.3 MB in 1s (10.8 MB/s)
 Reading package lists...
 Reading package lists...
 Building dependency tree...
@@ -181,7 +178,7 @@ Get:7 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-encodings a
 Get:8 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-utils amd64 1:7.7+6build3 [94.4 kB]
 Get:9 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 xfonts-cyrillic all 1:1.0.5+nmu1 [384 kB]
 Get:10 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-scalable all 1:1.0.3-1.3 [304 kB]
-Fetched 21.1 MB in 0s (45.2 MB/s)
+Fetched 21.1 MB in 1s (28.7 MB/s)
 Selecting previously unselected package fonts-ipafont-gothic.
 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 201818 files and directories currently installed.)
 Preparing to unpack .../0-fonts-ipafont-gothic_00303-21ubuntu1_all.deb ...
@@ -276,7 +273,7 @@ Chromium Headless Shell 140.0.7339.16 (playwright build v1187) downloaded to /ho
   test-results/workbench/workbench.js      1.7mb ⚠️
   test-results/workbench/workbench.js.map  2.7mb
 
-⚡ Done in 81ms
+⚡ Done in 61ms
 PASS StrictMode startup and local inspection without an LLM
 PASS Create a versioned price card and price a receipt by currency
 PASS Create and assign a project; persist token and money budgets
@@ -284,75 +281,9 @@ PASS Complete-day change attribution and CSV export
 PASS Cache scenario conserves usage and performs no model analysis
 PASS Immutable paired optimization experiments with human acceptance
 PASS Separate auxiliary ledger tracks cumulative usage once and requires clear confirmation
-locator.check: Clicking the checkbox did not change its state
-Call log:
-  - waiting for getByLabel('Allow plugins in this page to read the numeric summary (off by default)', { exact: true })
-    - locator resolved to <input type="checkbox" aria-labelledby=":r1v:"/>
-  - attempting click action
-    - waiting for element to be visible, enabled and stable
-    - element is visible, enabled and stable
-    - scrolling into view if needed
-    - done scrolling
-    - performing click action
-    - click action done
-    - waiting for scheduled navigations to finish
-    - navigations have finished
-
-    at /home/runner/work/dsh-token-usage/dsh-token-usage/scripts/workbench-e2e.cjs:130:92
-    at async step (/home/runner/work/dsh-token-usage/dsh-token-usage/scripts/workbench-e2e.cjs:21:9)
-    at async /home/runner/work/dsh-token-usage/dsh-token-usage/scripts/workbench-e2e.cjs:123:3 {
-  name: 'Error'
-}
-VISIBLE FIXTURE UI: LOCAL USAGE · 0.4
-Usage workbench
-
-From individual calls to auditable optimization decisions.
-
-Refresh settings and ledger
-Cancel current operation
-Reading or saving…
-Inspection / receipt
-Price cards
-Analysis ledger
-Changes
-Projects / budgets
-Scenarios
-Experiments
-Weekly / integration
-Selected session
-—
-PRIVATE TITLE ses_00000000000000000000000000
-Browsing project filter
-All projects
-Unassigned
-Integration project
-Browsing tag filter
-All tags
-coding
-reviewed
-
-Browsing scope: 1 / 1 sessions · Tokens 180 · Inspection uses the selected session; budgets always use complete project scope.
-
-Local weekly report and read-only integration
-
-Weekly reports contain only dates and numeric statistics, never session titles, paths, routes or content. Downloads follow browsing filters; same-window events use all observable sessions.
-
-2026-09-04 — 2026-09-11 UTC
-180 Token
-
-1 active sessions · Δ 180
-
-Cache reads / input: 31.25% · Complete dated coverage
-
-Export weekly SVG
-Export weekly JSON
-Allow plugins in this page to read the numeric summary (off by default)
-
-No HTTP service, cross-window messages or command execution. Disabling stops new summaries; data already received by same-page code cannot be revoked.
-
-All shared fields
-Same-window integration example
-Stored locally · No telemetry upload · Not a provider invoice or human acceptance
+PASS Weekly export is numeric-only and same-page sharing is opt-in
+PASS Concurrent configuration edits are rejected without overwriting newer settings
+PASS Chinese mobile interface has no viewport-level horizontal overflow
 
 
 === browser-results.json ===
@@ -363,43 +294,52 @@ Stored locally · No telemetry upload · Not a provider invoice or human accepta
     {
       "name": "StrictMode startup and local inspection without an LLM",
       "status": "passed",
-      "durationMs": 483
+      "durationMs": 421
     },
     {
       "name": "Create a versioned price card and price a receipt by currency",
       "status": "passed",
-      "durationMs": 499
+      "durationMs": 481
     },
     {
       "name": "Create and assign a project; persist token and money budgets",
       "status": "passed",
-      "durationMs": 628
+      "durationMs": 692
     },
     {
       "name": "Complete-day change attribution and CSV export",
       "status": "passed",
-      "durationMs": 91
+      "durationMs": 93
     },
     {
       "name": "Cache scenario conserves usage and performs no model analysis",
       "status": "passed",
-      "durationMs": 168
+      "durationMs": 144
     },
     {
       "name": "Immutable paired optimization experiments with human acceptance",
       "status": "passed",
-      "durationMs": 774
+      "durationMs": 769
     },
     {
       "name": "Separate auxiliary ledger tracks cumulative usage once and requires clear confirmation",
       "status": "passed",
-      "durationMs": 416
+      "durationMs": 395
     },
     {
       "name": "Weekly export is numeric-only and same-page sharing is opt-in",
-      "status": "failed",
-      "message": "Error: locator.check: Clicking the checkbox did not change its state\nCall log:\n  - waiting for getByLabel('Allow plugins in this page to read the numeric summary (off by default)', { exact: true })\n    - locator resolved to <input type=\"checkbox\" aria-labelledby=\":r1v:\"/>\n  - attempting click action\n    - waiting for element to be visible, enabled and stable\n    - element is visible, enabled and stable\n    - scrolling into view if needed\n    - done scrolling\n    - performing click action\n    - click action done\n    - waiting for scheduled navigations to finish\n    - navigations have finished\n",
-      "durationMs": 124
+      "status": "passed",
+      "durationMs": 365
+    },
+    {
+      "name": "Concurrent configuration edits are rejected without overwriting newer settings",
+      "status": "passed",
+      "durationMs": 246
+    },
+    {
+      "name": "Chinese mobile interface has no viewport-level horizontal overflow",
+      "status": "passed",
+      "durationMs": 293
     }
   ],
   "runtimeErrors": []
