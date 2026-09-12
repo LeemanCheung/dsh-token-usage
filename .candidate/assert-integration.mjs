@@ -21,6 +21,13 @@ edit('src/workbench/snapshot.ts', text => {
   if (/provisionalNodeCount\s*:/u.test(text)) return text
   return text.replace(/nodeCount\s*:\s*nodes\.length\s*,/u, "nodeCount: nodes.length, provisionalNodeCount: nodes.filter(node => node.finality !== 'authoritative').length,")
 }, text => /provisionalNodeCount\s*:\s*nodes\.filter/u.test(text))
+edit('scripts/workbench-e2e.cjs', text => {
+  const control = "field('Allow plugins in this page to read the numeric summary (off by default)')"
+  return text
+    .replace(`await ${control}.check(); await idle()`, `await ${control}.click(); await idle(); await expect(${control}).toBeChecked()`)
+    .replace(`await ${control}.uncheck(); await idle()`, `await ${control}.click(); await idle(); await expect(${control}).not.toBeChecked()`)
+    .replace(`await ${control}.check()`, `await ${control}.click()`)
+})
 edit('README.md', text => {
   let next = text
     .replace('再打开 **设置 → Token 用量**。', '再打开 **设置 → Token 用量**；新增功能位于 **设置 → 用量工作台**。')
