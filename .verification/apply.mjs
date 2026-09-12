@@ -9,6 +9,10 @@ assert.equal(parts.length, 11, 'All eleven source manifests are required')
 const files = parts.flatMap(name => JSON.parse(readFileSync(`.verification/${name}`,'utf8')).files)
 assert.equal(files.length, 36, 'Expected the reviewed 36-file change set')
 assert.equal(new Set(files.map(file => file.path)).size, files.length, 'Duplicate source path')
+// Correct the one JSON transport escape; the expected output hash stays unchanged.
+const app = files.find(file => file.path === 'src/client/workbench/App.tsx')
+const evidence = app.edits.find(edit => edit.line === 137)
+evidence.insert = evidence.insert.replace("finding.evidence.join('\n')", "finding.evidence.join('\\n')")
 const original = new Map()
 for (const file of files) {
   assert(typeof file.path === 'string' && !file.path.includes('..') && !file.path.includes('\\') && /^(src\/|tests\/|scripts\/|docs\/|package\.json$|README\.md$|CHANGELOG\.md$)/.test(file.path), 'Unexpected target path')
