@@ -510,7 +510,7 @@ function installRpc(ctx: Context): void {
               request.language,
               analysisSignal,
               report,
-            ))),
+            ), request.progressId ? { requestId: request.progressId, fingerprint: JSON.stringify([request.input, request.language]) } : undefined)),
           }
         } catch (error) {
           if (analysisSignal.aborted) throw error
@@ -543,7 +543,7 @@ function installRpc(ctx: Context): void {
                 request.language,
                 analysisSignal,
                 report,
-              ))
+              ), request.progressId ? { requestId: request.progressId, fingerprint: JSON.stringify([request.sessionId, request.language]) } : undefined)
             }),
           }
         } catch (error) {

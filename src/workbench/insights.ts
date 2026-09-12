@@ -1,9 +1,10 @@
+import { finding } from './diagnostics.ts'
 import { bucketKeys, day as daySchema, type Buckets, type Configuration, type ExperimentRun, type Finding, type LocalSnapshot, type LedgerEntry } from './schema.ts'
 import { add, zero, total } from './prices.ts'
 
 export function diagnose(totals: LocalSnapshot['totals'], thresholds: Configuration['thresholds']): Finding[] {
   const findings: Finding[] = []
-  const push = (ruleId: string, severity: Finding['severity'], value: number, evidence: string[], threshold?: number, coverage: Finding['coverage'] = 'complete') => findings.push({ ruleId, ruleVersion: '1', severity, value, evidence, coverage, ...(threshold === undefined ? {} : { threshold }) })
+  const push = (ruleId: string, severity: Finding['severity'], value: number, evidence: string[], threshold?: number, coverage: Finding['coverage'] = 'complete') => findings.push(finding(ruleId, severity, value, evidence, coverage, 'session', threshold))
   const tokens = total(totals.usage)
   if (bucketKeys.some(key => totals.delta[key] !== 0)) push('reconciliation', 'error', bucketKeys.reduce((sum, key) => sum + Math.abs(totals.delta[key]), 0), bucketKeys.map(key => `${key}: ${totals.delta[key]}`), undefined, 'partial')
   if (tokens && total(totals.retry) / tokens >= thresholds.retryShare && total(totals.retry)) push('retry-share', 'warning', total(totals.retry) / tokens, [`retryTokens: ${total(totals.retry)}`, `allTokens: ${tokens}`, `retries: ${totals.retries}`], thresholds.retryShare)
@@ -91,7 +92,7 @@ export function experimentComparison(runs: readonly ExperimentRun[], experiment:
     const rows = selected.filter(run => run.variant === variant), passed = rows.filter(run => run.accepted === true).length
     return { variant, n: rows.length, judged: rows.filter(run => run.accepted !== null).length, passed,
       acceptance: rows.length && rows.every(run => run.accepted !== null) ? passed / rows.length : null,
-      tokens: stats(rows.map(run => total(run.usage))), durationMs: stats(rows.map(run => run.durationMs)), retries: stats(rows.map(run => run.retries)),
+      tokens: stats(rows.map(run => total(run.usage))), retryTokenShare: stats(rows.filter(run => run.retryUsage && total(run.usage) > 0).map(run => total(run.retryUsage!) / total(run.usage))), requestRetryShare: stats(rows.filter(run => run.requests && run.requests > 0).map(run => run.retries / run.requests!)), durationMs: stats(rows.map(run => run.durationMs)), retries: stats(rows.map(run => run.retries)),
       costs: (['USD', 'CNY'] as const).map(currency => {
         const costs = rows.map(run => run.costs.find(cost => cost.currency === currency))
         const complete = rows.length > 0 && rows.every(run => run.complete) && costs.every(cost => cost?.complete)
@@ -104,7 +105,14 @@ export function experimentComparison(runs: readonly ExperimentRun[], experiment:
   for (const run of selected) { const key = JSON.stringify([run.pair, run.task, run.size, run.conditions]); pairs.set(key, [...(pairs.get(key) ?? []), run]) }
   const paired = [...pairs.values()].filter(rows => rows.filter(row => row.variant === 'baseline').length === 1 && rows.filter(row => row.variant === 'candidate').length === 1)
   const differences = paired.map(rows => total(rows.find(row => row.variant === 'candidate')!.usage) - total(rows.find(row => row.variant === 'baseline')!.usage))
-  return { groups, pairedCount: paired.length, tokenDifferences: stats(differences), comparable: selected.length > 0 && paired.length * 2 === selected.length && selected.every(run => run.complete),
+  const uniqueSnapshots = new Set(selected.map(run => run.revision)).size === selected.length
+  const priced = selected.flatMap(run => run.costs)
+  const priceBases = (['USD', 'CNY'] as const).map(currency => {
+    const values = selected.map(run => run.costs.find(cost => cost.currency === currency))
+    return { currency, comparable: selected.length > 0 && values.every(cost => cost?.complete && cost.fingerprint) && new Set(values.map(cost => cost?.fingerprint)).size === 1 }
+  })
+  const samePriceBasis = priceBases.some(item => item.comparable)
+  return { groups, uniqueSnapshots, samePriceBasis, priceBases, observations: selected, pairedCount: paired.length, tokenDifferences: stats(differences), comparable: selected.length > 0 && uniqueSnapshots && paired.length * 2 === selected.length && selected.every(run => run.complete),
     qualityObserved: selected.length > 0 && selected.every(run => run.accepted !== null), exploratory: true as const }
 }
 /** Only numerical allowlisted fields enter the optional same-origin summary. */

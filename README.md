@@ -4,7 +4,7 @@
   <a href="https://awesome.re"><img src="https://awesome.re/badge.svg" alt="Awesome"></a>
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome DSH Plugin"></a>
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek_Harness-plugin-2f6cff.svg" alt="DeepSeek Harness plugin"></a>
-  <img src="https://img.shields.io/badge/version-0.4.0-2f6cff.svg" alt="Version 0.4.0">
+  <img src="https://img.shields.io/badge/version-0.5.0-2f6cff.svg" alt="Version 0.5.0">
   <img src="https://img.shields.io/badge/data-local--first-6f42c1.svg" alt="Local-first data">
   <img src="https://img.shields.io/badge/AI_analysis-opt--in-f59e0b.svg" alt="Opt-in AI analysis">
   <img src="https://img.shields.io/badge/privacy-allowlist-0f9d8a.svg" alt="Allowlist privacy">
@@ -116,7 +116,7 @@ dsh plugin --profile web add ./dsh-token-usage
 
 ### 兼容性、存储与卸载
 
-- `0.4.0` 源码已验证兼容 DSH `0.1.2-rc.1` 的 Session Controller、Client Store、UI Renderer 与 Connection 接口；验证范围见 [`docs/compatibility-0.1.2-rc.1.md`](docs/compatibility-0.1.2-rc.1.md)。CLI 或非 Web profile 不提供仪表盘。
+- `0.5.0` 源码已验证兼容 DSH `0.1.2-rc.1` 的 Session Controller、Client Store、UI Renderer 与 Connection 接口；验证范围见 [`docs/compatibility-0.1.2-rc.1.md`](docs/compatibility-0.1.2-rc.1.md)。CLI 或非 Web profile 不提供仪表盘。
 - 标题栏和侧栏速率继续表示最近最多 10 秒内由 Provider 确认并写入投影的输出 Token 增量，每 5 秒刷新；缺少投影、计数回退、来源切换和计时器挂起都会重新采样，不把估算值写成真实入账。
 - 原有 Token 用量与轨迹报告的数据分为三层：Host 的会话 projection 聚合统计、DSH settings 中的全局与精确路由滚动 30 日预算（`token-usage.rolling30DayBudget` / `token-usage.routeBudgets`），以及当前浏览器 `localStorage` 中最多 24 条的轨迹报告（`dsh-token-usage.trajectory-history.v1`）。聚合 AI 用量报告不会持久化。
 - 卸载是移除插件挂载，并不是数据重置流程。若要减少本地残留，请先在轨迹历史中删除报告、将预算清零，再按 DSH 自身的 session/cache 保留策略处理 projection 数据。
@@ -346,8 +346,13 @@ npm run build
 [MIT](LICENSE) © LeemanCheung
 
 
-## 本地用量工作台（0.4.0）
+## 本地用量工作台（0.5.0）
 
 在设置中打开 **用量工作台 / Usage workbench**。新增无需模型的体检、用量收据、版本化自定义价卡、辅助分析账本、变化归因、项目预算、优化实验室、情景试算与本地周报。原有 Token 用量页和账本口径保持不变。
 
 配置及辅助账本保存在 Host 的 `token-usage-workbench` settings；本地体检只读取元数据，不调用模型。价格是参考估算，不是账单；不同币种不相加。详见 [工作台使用与数据边界](docs/workbench.md)。
+
+
+### 0.5.0 计划补齐
+
+工作台新增诊断范围与建议动作、Token 条形节点图、合计可观测用量、价卡修订/回滚、请求 ID 级去重、完整实验指标、跨时段情景对比、参考费用效应分解、优化成果周报及离线收据。已有 v1 摘要保持兼容，v2 独立事件提供预算状态与已确认输出采样。逐项验收映射见 [计划验收矩阵](docs/workbench-acceptance.md)。
