@@ -1,0 +1,9 @@
+Source job: 103215057282
+2026-09-11T09:31:16.7640316Z npm run typecheck 2>&1 | tee test-results/workbench/typecheck.log
+2026-09-11T09:31:16.8652901Z > dsh-token-usage@0.4.0 typecheck
+2026-09-11T09:31:16.8654501Z > npm run typecheck:host && npm run typecheck:client && npm run typecheck:config
+2026-09-11T09:31:16.9687693Z > dsh-token-usage@0.4.0 typecheck:host
+2026-09-11T09:31:19.2486399Z ##[error]src/workbench/host.ts(4,21): error TS2724: '"@deepseek-ai/dsh-session"' has no exported member named 'isSessionEvent'. Did you mean 'SessionEvent'?
+2026-09-11T09:31:19.2496361Z ##[error]src/workbench/snapshot.ts(29,19): error TS2345: Argument of type 'number' is not assignable to parameter of type 'SessionSeq'.
+2026-09-11T09:31:19.2498900Z ##[error]src/workbench/snapshot.ts(29,58): error TS2345: Argument of type 'number' is not assignable to parameter of type 'SessionSeq'.
+2026-09-11T09:31:19.2899345Z ##[error]Process completed with exit code 2.
