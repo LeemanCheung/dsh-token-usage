@@ -92,12 +92,17 @@ export function observableTotals(sessions: readonly InsightSession[], state: imp
   if (entries.some(entry => entry.usage === null)) reasons.push('unreported-analysis-usage')
   if (entries.some(entry => entry.finality !== 'authoritative')) reasons.push('provisional-analysis-usage')
   if (!state.ledgerStartedAt || state.ledgerStartedAt.slice(0, 10) > start) reasons.push('analysis-tracking-started-after-window')
-  if (state.evictedEntries || state.ledgerClearedAt) reasons.push('analysis-history-evicted-or-cleared')
+  const windowStart = Date.parse(start)
+  const clearedInWindow = state.ledgerClearedAt !== null && Date.parse(state.ledgerClearedAt) >= windowStart
+  const evictedInWindow = state.evictedEntries > 0
+    && (state.ledgerEvictedThrough === null || Date.parse(state.ledgerEvictedThrough) >= windowStart)
+  if (clearedInWindow || evictedInWindow) reasons.push('analysis-history-evicted-or-cleared')
   return { start, end, timezone: 'UTC' as const, sessionUsage, auxiliaryUsage, combined, reasons, complete: reasons.length === 0,
     unknownSessions: sessions.filter(session => !session.dailyUsageReliable).length,
     unknownAnalysis: entries.filter(entry => entry.usage === null).length,
     analysisShare: total(combined) ? total(auxiliaryUsage) / total(combined) : null,
-    ledgerStartedAt: state.ledgerStartedAt, ledgerClearedAt: state.ledgerClearedAt, evictedEntries: state.evictedEntries }
+    ledgerStartedAt: state.ledgerStartedAt, ledgerClearedAt: state.ledgerClearedAt, evictedEntries: state.evictedEntries,
+    ledgerEvictedThrough: state.ledgerEvictedThrough }
 }
 
 /** Budget findings share the same explicit date basis as the displayed snapshot. */

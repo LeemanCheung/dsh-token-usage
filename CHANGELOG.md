@@ -4,7 +4,11 @@ This changelog records verifiable changes represented in the repository history.
 
 ## [Unreleased]
 
-No entries yet.
+- Reattribute identical final usage to its authoritative UTC day and replay older projection checkpoints without changing total usage or request counts.
+- Keep unattributed fallback identities out of exact-route trend and budget controls; retain existing fallback budgets as removable, unavailable entries.
+- Persist interrupted-analysis recovery before reporting readable state, preserving the first recovered end time across restarts.
+- Limit clear/eviction coverage gaps to affected reporting windows, retaining a conservative startup boundary for legacy evictions with unknown dates.
+- Persist expired request-reservation cleanup on startup, reads and configuration changes, including request-key copies in retained ledger records.
 
 ## [0.5.0] - 2026-09-12
 

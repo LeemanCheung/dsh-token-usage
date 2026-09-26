@@ -515,6 +515,31 @@ describe('TokenUsageSection', () => {
     expect(screen.getAllByText('热力图会话').length).toBeGreaterThan(1)
   })
 
+  it('excludes projection fallback identities from exact trend and budget controls', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
+    const usage = { uncachedInputTokens: 10, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+    const fallback = summary({
+      id: 'session-unattributed' as SessionSummary['id'], displayTitle: '未归属会话', updatedAt: Date.UTC(2026, 7, 12),
+      projectionValues: { tokenUsageRecorder: {
+        assistantRequests: 1, compactionRequests: 0, usage,
+        models: [{ provider: 'unknown', model: 'unknown', assistantRequests: 1, compactionRequests: 0, usage }],
+        days: [{ date: '2026-08-12', usage }],
+        modelDays: [{ provider: 'unknown', model: 'unknown', date: '2026-08-12', usage }],
+      } },
+    })
+    render(<TokenUsageSection {...props([first, fallback])}
+      useBudget={selector => selector({ status: 'ready', budget: 0, routeBudgets: [{ provider: 'unknown', model: 'unknown', rolling30DayBudget: 1000 }] })}
+    />)
+    for (const label of ['趋势模型', '模型路由']) {
+      const control = screen.getByLabelText(label) as HTMLSelectElement
+      expect(Array.from(control.options).map(option => option.value)).not.toContain(JSON.stringify(['unknown', 'unknown']))
+      expect(Array.from(control.options).map(option => option.value)).toContain(JSON.stringify(['deepseek', 'deepseek-chat']))
+    }
+    expect(screen.getByText('等待可靠数据')).toBeTruthy()
+    expect(screen.queryByText('健康')).toBeNull()
+    expect(screen.getByRole('button', { name: '移除 unknown/unknown 的预算' })).toBeTruthy()
+  })
+
   it('filters reliable UTC trends by exact provider/model route', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 7, 14, 12))
     const routed = summary({

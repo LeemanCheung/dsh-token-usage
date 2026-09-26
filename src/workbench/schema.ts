@@ -147,6 +147,7 @@ export const stateSchema = z.object({
   priceRevision: integer.default(0), priceHistory: z.array(priceRevisionSchema).max(16).default([]), evictedPriceRevisions: integer.default(0),
   requestKeys: z.array(requestKeySchema).max(2048).default([]), evictedRequestKeys: integer.default(0),
   ledgerStartedAt: stamp.nullable().default(null), ledgerClearedAt: stamp.nullable().default(null),
+  ledgerEvictedThrough: stamp.nullable().default(null),
 }).strict()
 export type WorkbenchState = z.infer<typeof stateSchema>
 export function emptyState(): WorkbenchState { return stateSchema.parse({ schema: SCHEMA, revision: 0, config: emptyConfiguration(), ledger: [], evictedEntries: 0 }) }
