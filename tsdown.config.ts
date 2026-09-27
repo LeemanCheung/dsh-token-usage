@@ -108,7 +108,7 @@ async function deterministicCssModule(this: BuildHookContext, fileId: string): P
   ].join('\n')
 }
 
-/** Normalize embedded source text before Rolldown writes the map asset. */
+/** Normalize dependency labels and embedded text while retaining every source mapping. */
 function canonicalSourceMapPlugin() {
   return {
     name: 'dsh-token-usage-canonical-sourcemap',
@@ -143,6 +143,11 @@ function canonicalSourceMapPlugin() {
         ))) {
           throw new Error('dsh-token-usage build: source map contains an absolute source path')
         }
+        map.sources = (map.sources as string[]).map(source => {
+          const segments = source.replaceAll('\\', '/').split('/')
+          const dependency = segments.indexOf('node_modules')
+          return dependency < 0 ? source : `../${segments.slice(dependency).join('/')}`
+        })
         map.sourcesContent = map.sourcesContent.map(content => (
           typeof content === 'string' ? content.replace(/\r\n?/g, '\n') : content
         ))
@@ -223,8 +228,19 @@ export default (inlineConfig: Parameters<typeof baseConfig>[0]) => {
         },
       }
     })
-    if (config.name === `${PLUGIN_ID}/client`) plugins.push(canonicalSourceMapPlugin())
-    return { ...config, plugins }
+    if (config.name !== `${PLUGIN_ID}/client`) return { ...config, plugins }
+    plugins.push(canonicalSourceMapPlugin())
+    return {
+      ...config,
+      plugins,
+      // Rolldown's AST printer removes checkout-dependent region comments.
+      // Keep identifiers, expressions, legal notices and source-map chaining.
+      minify: {
+        compress: false,
+        mangle: false,
+        codegen: { removeWhitespace: true, legalComments: 'inline' as const },
+      },
+    }
   })
 
   const includesClient = configs.some(config => config.name === `${PLUGIN_ID}/client`)
