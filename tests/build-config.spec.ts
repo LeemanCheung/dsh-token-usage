@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
+import { originalPositionFor, TraceMap } from '@jridgewell/trace-mapping'
 import { transform } from 'lightningcss'
+import { build } from 'rolldown'
 import { describe, expect, it, vi } from 'vitest'
 import buildConfig, { canonicalCssLocation, CSS_MODULE_PATTERN } from '../tsdown.config.ts'
 
@@ -124,14 +127,23 @@ describe('deterministic client build config', () => {
       fileName: 'client.js.map',
       source: JSON.stringify({
         version: 3,
-        sources: ['../src/client/index.ts'],
-        sourcesContent: ['first\r\nsecond\rthird'],
+        sources: [
+          '../src/client/index.ts',
+          '../../deepseek-harness/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js',
+          '../../../_temp/deepseek-harness/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js',
+        ],
+        sourcesContent: ['first\r\nsecond\rthird', 'dependency', 'dependency'],
         names: [],
         mappings: '',
       }),
     }
     generateBundle.call({}, {}, { 'client.js.map': mapAsset })
-    expect(JSON.parse(mapAsset.source).sourcesContent).toEqual(['first\nsecond\nthird'])
+    expect(JSON.parse(mapAsset.source).sourcesContent).toEqual(['first\nsecond\nthird', 'dependency', 'dependency'])
+    expect(JSON.parse(mapAsset.source).sources).toEqual([
+      '../src/client/index.ts',
+      '../node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js',
+      '../node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js',
+    ])
 
     for (const source of ['C:/private/source.ts', '\\\\server\\share\\source.ts', 'file:///C:/private/source.ts']) {
       mapAsset.source = JSON.stringify({
@@ -143,5 +155,40 @@ describe('deterministic client build config', () => {
       })
       expect(() => generateBundle.call({}, {}, { 'client.js.map': mapAsset })).toThrow(/absolute source path/)
     }
+  })
+
+  it('renders dependency layouts identically while preserving licenses, literal text and source positions', async () => {
+    const client = buildConfig({}).find(config => config.name === 'dsh-token-usage/client')
+    const normalizer = Array.isArray(client?.plugins)
+      ? client.plugins.find(entry => typeof entry === 'object' && entry !== null && 'name' in entry && entry.name === 'dsh-token-usage-canonical-sourcemap')
+      : undefined
+    if (!client || !normalizer) throw new Error('client build policy is unavailable')
+    const text = 'before\n//#region ../deepseek-harness/node_modules/vendor/private.js\nafter'
+    const source = `/*! @license fixture MIT */\nexport const literal = String.raw\`${text}\`;`
+    const render = async (layout: string) => {
+      const result = await build({
+        input: 'fixture', write: false,
+        plugins: [{
+          name: 'dependency-fixture',
+          resolveId: () => resolvePath(root, layout, 'node_modules/vendor/index.js'),
+          load: () => source,
+        }, normalizer],
+        output: { format: 'cjs', file: 'client.js', sourcemap: true, minify: client.minify },
+      })
+      const chunk = result.output.find(output => output.type === 'chunk')
+      const asset = result.output.find(output => output.type === 'asset' && output.fileName === 'client.js.map')
+      if (!chunk || !asset || asset.type !== 'asset') throw new Error('fixture bundle or map is missing')
+      const map = JSON.parse(String(asset.source))
+      const module = { exports: {} as { literal?: string } }
+      runInNewContext(chunk.code, { module, exports: module.exports })
+      expect(module.exports.literal).toBe(text)
+      expect(chunk.code).toContain('/*! @license fixture MIT */')
+      expect(map.sourcesContent).toEqual([source])
+      const location = chunk.code.slice(0, chunk.code.indexOf('String.raw')).split('\n')
+      expect(originalPositionFor(new TraceMap(map), { line: location.length, column: location.at(-1)!.length }))
+        .toMatchObject({ source: '../node_modules/vendor/index.js', line: 2 })
+      return { code: chunk.code, map }
+    }
+    expect(await render('../deepseek-harness')).toEqual(await render('../../_temp/deepseek-harness'))
   })
 })

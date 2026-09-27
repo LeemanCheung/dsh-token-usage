@@ -10,7 +10,7 @@ function event(value: unknown): SessionEvent {
 }
 
 describe('tokenUsageRecorder projection', () => {
-  it('drops a pre-daily checkpoint and refolds the complete log', async () => {
+  it('drops a checkpoint predating UTC-day reattribution and refolds the complete log', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry).await()
     const unregister = ctx.sessionProjections.register(definition)
@@ -60,11 +60,11 @@ describe('tokenUsageRecorder projection', () => {
       }),
     ]
     const legacyCheckpoint = {
-      tokenUsageRecorder: { ver: 2, seq: 3, val: {} },
+      tokenUsageRecorder: { ver: 7, seq: 3, val: {} },
     }
 
     try {
-      expect(definition.stateVersion).toBe(7)
+      expect(definition.stateVersion).toBe(8)
       expect(ctx.sessionProjections.restoreFloor(legacyCheckpoint)).toBe(0)
       const restored = ctx.sessionProjections.restore(legacyCheckpoint, events, 0)
       expect(restored.snapshot.values.tokenUsageRecorder).toMatchObject({
@@ -83,7 +83,7 @@ describe('tokenUsageRecorder projection', () => {
           cacheWriteTokens: 0,
         },
       })
-      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 7, seq: 3 })
+      expect(restored.checkpoint.tokenUsageRecorder).toMatchObject({ ver: 8, seq: 3 })
     } finally {
       unregister()
       await ctx.fiber.dispose()

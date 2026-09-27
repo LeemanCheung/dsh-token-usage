@@ -18,18 +18,41 @@ const rollbackRequest = z.object({ revision: z.number().int().nonnegative(), tar
 const emptyRequest = z.object({}).strict()
 const clearRequest = z.object({ confirm: z.literal('clear-analysis-ledger') }).strict()
 const failure = (message: string) => ({ ok: false as const, error: { code: 'internal' as const, message, details: {} } })
+const REQUEST_RETENTION_MS = 30 * 86400000
+
+/** Expire both reservation copies without removing their usage or audit timestamps. */
+function pruneRequestKeys(state: WorkbenchState, now = Date.now()): void {
+  const retained = state.requestKeys.filter(item => now - Date.parse(item.at) < REQUEST_RETENTION_MS)
+  state.evictedRequestKeys += state.requestKeys.length - retained.length
+  state.requestKeys = retained
+  for (const entry of state.ledger) {
+    if (entry.requestKey && now - Date.parse(entry.startedAt) >= REQUEST_RETENTION_MS) delete entry.requestKey
+  }
+}
 
 /** Bounded durable store; all mutations are serialized and config changes use a revision precondition. */
 export function createWorkbenchHost(ctx: Context) {
   const storage = ctx.settings.register('token-usage-workbench', storageSchema)
   let state: WorkbenchState
-  let damaged = false, storageFailed = false, active = 0
+  let damaged = false, storageFailed = false, active = 0, startupWritePending = false
   try {
     const raw = storage.get().data
     state = raw ? migrateState(JSON.parse(raw)) : emptyState()
     ensurePriceHistory(state)
     state.ledgerStartedAt ??= state.ledger.map(entry => entry.startedAt).sort()[0] ?? null
-    state.ledger = state.ledger.map(entry => entry.status === 'running' ? { ...entry, status: 'interrupted', endedAt: new Date().toISOString() } : entry)
+    const recoveredAt = new Date(Date.now()).toISOString()
+    state.ledger = state.ledger.map(entry => {
+      if (entry.status !== 'running') return entry
+      startupWritePending = true
+      return { ...entry, status: 'interrupted', endedAt: recoveredAt }
+    })
+    if (state.evictedEntries > 0 && state.ledgerEvictedThrough === null) {
+      // Older stores did not retain eviction dates. Startup is a conservative
+      // upper bound, so existing windows remain incomplete without penalizing
+      // windows wholly after this observation forever.
+      state.ledgerEvictedThrough = recoveredAt
+      startupWritePending = true
+    }
   } catch { state = emptyState(); damaged = true }
   let queue: Promise<void> = Promise.resolve()
   const archives = new Map<string, { archive: SnapshotArchive; touched: number }>()
@@ -43,18 +66,26 @@ export function createWorkbenchHost(ctx: Context) {
     archives.set(JSON.stringify([archive.base.sessionId, archive.base.revision]), { archive, touched: Date.now() })
     while (archives.size > 8) archives.delete([...archives.entries()].sort((a, b) => a[1].touched - b[1].touched)[0]![0])
   }
-  function mutate(operation: (draft: WorkbenchState) => void): Promise<void> {
+  function mutate(operation: (draft: WorkbenchState) => void, onlyIfChanged = false): Promise<void> {
     const run = queue.then(async () => {
       if (damaged) throw new Error('Workbench storage is invalid; existing data was left untouched')
       const draft = structuredClone(state)
+      pruneRequestKeys(draft)
       operation(draft)
+      pruneRequestKeys(draft)
       boundedParse(stateSchema, draft)
+      if (onlyIfChanged && !startupWritePending && JSON.stringify(draft) === JSON.stringify(state)) return
       await storage.update({ data: JSON.stringify(draft) })
-      state = draft; storageFailed = false
+      state = draft; storageFailed = false; startupWritePending = false
     })
     queue = run.catch(() => {})
     return run
   }
+  // Queue startup recovery before subsequent state reads and mutations.
+  void mutate(() => {}, true).catch(() => {
+    storageFailed = true
+    ctx.logger.warn('token usage: workbench startup maintenance could not be persisted')
+  })
   async function checkpoint(entry: LedgerEntry): Promise<void> {
     try {
       await mutate(draft => {
@@ -65,7 +96,9 @@ export function createWorkbenchHost(ctx: Context) {
         while (draft.ledger.length > 512) {
           const index = draft.ledger.findIndex(value => value.status !== 'running')
           if (index < 0) throw new Error('Auxiliary ledger capacity reached')
-          draft.ledger.splice(index, 1); draft.evictedEntries++
+          const removed = draft.ledger.splice(index, 1)[0]!
+          if (draft.ledgerEvictedThrough === null || Date.parse(removed.startedAt) > Date.parse(draft.ledgerEvictedThrough)) draft.ledgerEvictedThrough = removed.startedAt
+          draft.evictedEntries++
         }
       })
     } catch {
@@ -83,10 +116,7 @@ export function createWorkbenchHost(ctx: Context) {
       // Reserve durably BEFORE calling the provider; duplicate/reconnected RPCs cannot bill twice.
       await mutate(draft => {
         signal.throwIfAborted()
-        const retained = draft.requestKeys.filter(item => Date.now() - Date.parse(item.at) < 30 * 86400000)
-        draft.evictedRequestKeys += draft.requestKeys.length - retained.length
-        draft.requestKeys = retained
-        const prior = retained.find(item => item.key === key) ?? (draft.ledger.some(item => item.requestKey === key) ? { fingerprint } : undefined)
+        const prior = draft.requestKeys.find(item => item.key === key) ?? (draft.ledger.some(item => item.requestKey === key) ? { fingerprint } : undefined)
         if (prior) throw new Error(prior.fingerprint !== fingerprint ? 'Request id was reused with different analysis input.' : 'This analysis request was already recorded or is running. Inspect the ledger; explicitly start a new analysis to run again.')
         draft.requestKeys.push({ key, fingerprint, at: entry.startedAt })
         while (draft.requestKeys.length > 2048) { draft.requestKeys.shift(); draft.evictedRequestKeys++ }
@@ -142,7 +172,7 @@ export function createWorkbenchHost(ctx: Context) {
       signal.throwIfAborted()
       switch (endpoint) {
         case 'workbench/read':
-          emptyRequest.parse(payload); await queue
+          emptyRequest.parse(payload); await mutate(() => {}, true)
           if (damaged || storageFailed) return failure('Workbench storage is unavailable; existing data has not been discarded')
           return { ok: true as const, value: structuredClone(state) }
         case 'workbench/config': {
@@ -170,7 +200,7 @@ export function createWorkbenchHost(ctx: Context) {
           clearRequest.parse(payload)
           await mutate(draft => {
             if (active) throw new Error('Cannot clear the ledger while analysis is running')
-            draft.ledger = []; draft.evictedEntries = 0; draft.ledgerClearedAt = new Date().toISOString()
+            draft.ledger = []; draft.evictedEntries = 0; draft.ledgerClearedAt = new Date().toISOString(); draft.ledgerEvictedThrough = null
           })
           return { ok: true as const, value: structuredClone(state) }
         case 'workbench/snapshot': {

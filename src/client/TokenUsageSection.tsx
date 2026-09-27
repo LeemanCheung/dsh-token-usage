@@ -138,8 +138,9 @@ function formatLatency(value: number): string {
 }
 
 /** Whether a dashboard-only row contains usage whose model route is unavailable. */
-function isUnattributed(model: ModelTokenUsageRecord): boolean {
-  return model.provider === '' && model.model === ''
+function isUnattributed(model: Pick<ModelTokenUsageRecord, 'provider' | 'model'>): boolean {
+  return (model.provider === '' && model.model === '')
+    || (model.provider === 'unknown' && model.model === 'unknown')
 }
 
 /** Stable provider/model identity for React lists and aggregation. */
@@ -474,7 +475,7 @@ function BudgetPanel({
   )
   const persistedRouteBudgets = snapshot.routeBudgets ?? []
   const routeInsights = useMemo(
-    () => modelDailyCoverage === 'complete' ? routeBudgetInsights(persistedRouteBudgets, modelDays) : [],
+    () => modelDailyCoverage === 'complete' ? routeBudgetInsights(persistedRouteBudgets.filter(route => !isUnattributed(route)), modelDays) : [],
     [modelDailyCoverage, modelDays, persistedRouteBudgets],
   )
   const routeInsightByKey = useMemo(

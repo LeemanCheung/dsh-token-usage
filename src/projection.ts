@@ -361,6 +361,7 @@ export const tokenUsageRecorderProjectionDefinition = {
     if (previous !== null
       && previous.route.provider === route.provider
       && previous.route.model === route.model
+      && previous.day === day
       && bucketsEqual(previous.usage, usage)) return state
 
     const models = { ...state.models }
@@ -391,7 +392,7 @@ export const tokenUsageRecorderProjectionDefinition = {
     viewSchema: projectionSchema,
     view: recorderView,
   },
-  stateVersion: 7,
+  stateVersion: 8,
 } satisfies ProjectionDefinition<'tokenUsageRecorder', RecorderState>
 
 /** Fold one complete event sequence through the canonical persistent projection reducer. */
